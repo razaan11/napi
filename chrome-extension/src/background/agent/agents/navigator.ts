@@ -31,6 +31,9 @@ import { type DOMHistoryElement } from '@src/background/browser/dom/history/view
 
 const logger = createLogger('NavigatorAgent');
 
+// TEMP (napi Stage 1): hardcoded guide-mode switch. Moves to settings later.
+const GUIDE_MODE = true;
+
 interface ParsedModelOutput {
   current_state?: {
     next_goal?: string;
@@ -201,8 +204,20 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       this.addModelOutputToMemory(modelOutput);
 
       // take the actions
-      actionResults = await this.doMultiAction(actions);
-      // logger.info('Action results', JSON.stringify(actionResults, null, 2));
+      if (GUIDE_MODE) {
+        const nextGoal = modelOutput.current_state?.next_goal ?? '(no goal text)';
+        logger.info('🧭 GUIDE MODE — would show this step to the user:', nextGoal);
+        logger.info('🧭 GUIDE MODE — decided action(s):', JSON.stringify(actions));
+        // do NOT perform the action — the user will (not implemented yet)
+        actionResults = [
+          new ActionResult({
+            extractedContent: 'guide mode: waiting for user (stub)',
+            includeInMemory: true,
+          }),
+        ];
+      } else {
+        actionResults = await this.doMultiAction(actions);
+      }
 
       this.context.actionResults = actionResults;
 
