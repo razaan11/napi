@@ -206,12 +206,17 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       // take the actions
       if (GUIDE_MODE) {
         const nextGoal = modelOutput.current_state?.next_goal ?? '(no goal text)';
-        logger.info('🧭 GUIDE MODE — would show this step to the user:', nextGoal);
-        logger.info('🧭 GUIDE MODE — decided action(s):', JSON.stringify(actions));
-        // do NOT perform the action — the user will (not implemented yet)
+        logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
+
+        // Stage 2: pause and wait for the USER to perform the step
+        const userActed = await this.waitForUserStep();
+
         actionResults = [
           new ActionResult({
-            extractedContent: 'guide mode: waiting for user (stub)',
+            extractedContent: userActed
+              ? `user completed the step: "${nextGoal}"`
+              : `timed out - user did not complete: "${nextGoal}"`,
             includeInMemory: true,
           }),
         ];
@@ -376,6 +381,36 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       actions = [response.action];
     }
     return actions;
+  }
+
+  /**
+   * GUIDE MODE (napi): pause the loop and wait for the user to do the step themselves.
+   * v1: detect completion by the page URL changing. Times out after 2 minutes.
+   * Requires the side panel to stay open (keeps the service worker alive).
+   */
+  private async waitForUserStep(timeoutMs = 120_000): Promise<boolean> {
+    const page = await this.context.browserContext.getCurrentPage();
+    const startTab = await chrome.tabs.get(page.tabId);
+    const beforeUrl = startTab.url ?? '';
+    logger.info('🧭 GUIDE MODE — waiting for user. Current URL:', beforeUrl);
+
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (this.context.paused || this.context.stopped) return false;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      try {
+        const nowTab = await chrome.tabs.get(page.tabId);
+        const nowUrl = nowTab.url ?? '';
+        if (nowUrl && nowUrl !== beforeUrl) {
+          logger.info('🧭 GUIDE MODE — user acted. URL changed:', beforeUrl, '→', nowUrl);
+          return true;
+        }
+      } catch (e) {
+        logger.warning('🧭 GUIDE MODE — could not read tab during wait', e);
+      }
+    }
+    logger.warning('🧭 GUIDE MODE — timed out waiting for the user');
+    return false;
   }
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
