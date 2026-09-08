@@ -14,7 +14,7 @@ listed at the end and is NOT in scope yet.
 |---|---|---|
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element | DONE except the `mode` toggle |
-| 2 | Pause & wait, detect the user's action | PARTIAL — URL-change detection works; non-navigation click detection missing |
+| 2 | Pause & wait, detect the user's action | PARTIAL — URL-change + trusted-click detection done (click work UNCOMMITTED); typing/value-match + DOM-change detection missing; "task complete" no-target wait unfixed |
 | 3 | The Checker (verification) | NOT STARTED |
 | 4 | Skill Map | NOT STARTED |
 | 5 | Recovery | NOT STARTED |
@@ -28,20 +28,35 @@ listed at the end and is NOT in scope yet.
 
 **Goal:** know the user completed the step for ALL step types, not just navigations.
 
-**Tasks:**
-- Content-script listener on the spotlighted element (`pages/content/src/`). On the user's real
-  click (or keypress in a target field), post a message to the background worker.
-- Background message handler in `chrome-extension/src/background/index.ts`; route it to the waiting
-  Navigator (e.g. via an event on `AgentContext`, or a shared promise/emitter).
-- `waitForUserStep()` in `navigator.ts` resolves on the FIRST of:
-  - URL change (already implemented)
-  - "user clicked the spotlighted element" message
-  - target input's value matches the expected text (for type steps)
-  - a meaningful DOM change near the target
-  Keep the 2-minute timeout and the `paused/stopped` checks.
+**DONE:**
+- URL-change detection (`waitForUserStep()` polling).
+- Trusted-click detection on the spotlighted element, no URL change needed. Mechanism:
+  `guideStepId` (`crypto.randomUUID()`) -> `data-napi-guide-target` marker added by `buildDomTree`
+  -> `guide_watch_target` broadcast to all frames -> content script one-shot capturing listener,
+  `event.isTrusted` only -> `guide_target_clicked` back to background -> `notifyGuideStepClick`
+  resolves the pending waiter -> `waitForUserStep()` races click vs URL. New file
+  `chrome-extension/src/background/guide-step.ts`. **This work is implemented but UNCOMMITTED** —
+  review `git diff`, commit only the intended files on `guide-mode`.
+- Verified: W3Schools dropdown (`howto_js_dropdown.asp`), task "Open the dropdown menu." advances on
+  the in-page click.
 
-**Done when:** guiding a multi-step in-page flow (open a dropdown -> pick an item -> confirm)
-advances on each real user action without timing out.
+**STILL TO DO:**
+- **Typing into spotlighted input fields.** Pass the step's expected text to the content script;
+  advance only when the target field's real `value` matches it.
+- **Meaningful local DOM change** detection for controls where a click alone isn't enough
+  (e.g. an expander whose click target differs from the thing that changes). Decide the signal
+  (attribute change like `aria-expanded`, child added, etc.).
+- Keep click / URL / typing / DOM detection as a **race** with proper listener cleanup.
+- **"Task is complete" wait:** the model can emit a no-target completion action; guide mode still
+  waits the full 2 min on it. Investigate and fix as part of Checker / real completion semantics —
+  do NOT paper over it with another synthetic click.
+
+**Regression test before committing:** reload the extension AND reload the test page (`Ctrl+R`);
+confirm an in-page click still advances immediately.
+
+**Done when:** guiding a multi-step in-page flow (open a dropdown -> pick an item -> type a value ->
+confirm) advances on each real user action without timing out, and a no-target completion step does
+not hang for 2 minutes.
 
 ---
 

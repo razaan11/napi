@@ -1,8 +1,12 @@
 # napi — Development Notes (handoff)
 
-> Read this together with `CLAUDE.md` (Nanobrowser's own architecture doc).
-> All napi-specific work so far is on branch `guide-mode`, in ONE file:
-> `chrome-extension/src/background/agent/agents/navigator.ts`.
+> Read together with `CLAUDE.md` (Nanobrowser's own architecture doc) and
+> `NAPI_ROADMAP.md` (all remaining work).
+>
+> Branch: `guide-mode`. Never commit to `master`.
+> Stage 1 + Stage 2 guide-loop changes span several files — see section 4.
+> **Stage 2 click-detection is IMPLEMENTED BUT NOT YET COMMITTED** — review `git diff`,
+> commit only the intended files.
 
 ## 1. What this project is
 
@@ -19,227 +23,194 @@ result, and (eventually) tracks proven skills.
 | | |
 |---|---|
 | Repo | `github.com/razaan11/napi` (rename of a fork of `nanobrowser/nanobrowser`) |
-| Working branch | `guide-mode` (branched off `master`, which is untouched original Nanobrowser v0.1.13) |
-| Node | v24 (project `engines` requires `>=22.12.0`; `.nvmrc` says 22.12.0 but is not enforced) |
+| Working branch | `guide-mode` (branched off `master`, untouched original Nanobrowser v0.1.13) |
+| Node | v24 (`engines` requires `>=22.12.0`; `.nvmrc` says 22.12.0 but is not enforced) |
 | Package manager | `pnpm` 9.15.1 |
 | Build | `pnpm build` -> outputs to `dist/` |
 | Load in Chrome | `chrome://extensions` -> Developer mode ON -> Load unpacked -> select `dist/` -> click reload after every build |
-| Background logs | `chrome://extensions` -> extension card -> "service worker" link -> Console tab. This is the source of truth, not the side panel. |
+| Background logs | `chrome://extensions` -> extension card -> "service worker" link -> Console tab. Source of truth, not the side panel. |
+
+**Testing caveat:** after reloading the extension in `chrome://extensions`, Chrome disconnects
+content scripts already injected into open tabs. **Reload the actual web page (`Ctrl+R`)** or open a
+new tab before testing, or background<->content messaging fails with
+`Could not establish connection. Receiving end does not exist.`
 
 ### Model provider
 
-Uses **Kira AI** (`kiraai.vn`), an OpenAI-compatible API, added in the extension Settings
-as a **Custom / OpenAI-Compatible** provider:
+**Kira AI** (`kiraai.vn`), OpenAI-compatible, added in extension Settings as a
+**Custom / OpenAI-Compatible** provider:
 
 - Base URL: `https://kiraai.vn/api/v1`
-- Model in use: **`hy3`** (free, no deposit, reliable structured output) for both Planner and Navigator.
-- Avoid: `kira-auto` (returns malformed JSON wrapped in `<plan>` tags). `gpt-oss-120b` needs a paid wallet balance.
-- Other free-tier models needing no balance: `kira-auto`, `hy3`, `kira-mini-1.0`, `kira-2.0`, `mimo-v2.5`.
+- Model in use: **`hy3`** (free, no deposit, reliable structured output) for Planner and Navigator.
+- Avoid: `kira-auto` (malformed JSON in `<plan>` tags). `gpt-oss-120b` needs paid wallet balance.
+- Free-tier, no balance: `kira-auto`, `hy3`, `kira-mini-1.0`, `kira-2.0`, `mimo-v2.5`.
 
 ## 3. How Nanobrowser works (the parts that matter)
 
-Monorepo (`pnpm` workspaces + `turbo`). Chrome MV3 extension = separate programs that talk via messages:
+Monorepo (`pnpm` workspaces + `turbo`). Chrome MV3 extension = separate programs talking via messages:
 
 - **Background service worker** — `chrome-extension/src/background/` — coordinator + AI logic. No page access.
 - **Content scripts** — `pages/content/` — injected into web pages.
-- **Side panel** — `pages/side-panel/` — the React chat UI.
-- **Options page** — `pages/options/` — settings (providers, models).
+- **Side panel** — `pages/side-panel/` — React chat UI.
+- **Options page** — `pages/options/` — settings.
 - **Shared packages** — `packages/` (`storage`, `i18n`, `ui`, ...).
 
 ### Task flow
 
 1. Side panel sends `{ type: 'new_task', task, tabId }` over a long-lived **port** to the background.
-2. `chrome-extension/src/background/index.ts` catches it -> `setupExecutor()` -> reads providers + per-agent
-   models -> `createChatModel()` builds the Navigator LLM + Planner LLM -> `new Executor(...)`.
-3. `executor.execute()` (`chrome-extension/src/background/agent/executor.ts`) runs a loop up to `maxSteps`:
-   - periodically run **Planner** (`agent/agents/planner.ts`) -> returns a plan + `done` flag;
-     `checkTaskCompletion()` stops the loop if `done`.
+2. `chrome-extension/src/background/index.ts` -> `setupExecutor()` -> reads providers + per-agent
+   models -> `createChatModel()` -> `new Executor(...)`.
+3. `executor.execute()` (`agent/executor.ts`) loops up to `maxSteps`:
+   - periodically run **Planner** (`agent/agents/planner.ts`) -> plan + `done` flag; `checkTaskCompletion()` stops if `done`.
    - run **Navigator** (`agent/agents/navigator.ts`) via `navigate()` -> `this.navigator.execute()`.
-4. Events (`emitEvent`) flow back over the port to the side panel to display.
+4. `emitEvent` events flow back over the port to the side panel.
 
 ### The Page Reader
 
-- On tab load, `index.ts` injects `buildDomTree.js` into the page.
-- `Page.getState()` / `Page._updateState(useVision, focusElement)` ->
-  `getClickableElements(showHighlight, focusElement)` -> runs `buildDomTree`, which numbers every
-  interactive element and draws highlight boxes. Passing a real index as `focusElement`
-  **emphasizes that one element**.
-- Files: `chrome-extension/src/background/browser/context.ts`, `.../browser/page.ts`, `.../browser/dom/`.
+- On tab load, `index.ts` injects `buildDomTree.js`.
+- `Page.getState()` / `Page._updateState(useVision, focusElement, guideTargetId?)` ->
+  `getClickableElements(showHighlight, focusElement, guideTargetId?)` -> runs `buildDomTree`, which
+  numbers interactive elements and draws highlight boxes. `focusElement` = a real index emphasizes
+  that one element. `guideTargetId` (napi addition) marks that element with
+  `data-napi-guide-target="<id>"` for click detection.
+- Files: `browser/context.ts`, `browser/page.ts`, `browser/dom/service.ts`, `browser/dom/` + `chrome-extension/public/buildDomTree.js`.
 
-### The Navigator (where all napi changes are)
+### The Navigator
 
 `chrome-extension/src/background/agent/agents/navigator.ts` -> `execute()`:
 
-1. `addStateMessageToMemory()` — page state into the LLM conversation
-2. `modelOutput = await this.invoke(inputMessages)` — **LLM decides**
-   `{ current_state: { next_goal }, action: [ { <name>: <args> } ] }`
-3. `actions = this.fixActions(modelOutput)`
-4. memory bookkeeping
-5. **`actionResults = await this.doMultiAction(actions)`** — original: **performs** the action
-   (`actionInstance.call(actionArgs)`)
-6. returns `{ done }` based on `actionResults[last].isDone`
+1. `addStateMessageToMemory()` — page state into the LLM conversation.
+2. `modelOutput = await this.invoke(inputMessages)` — LLM decides
+   `{ current_state: { next_goal }, action: [ { <name>: <args> } ] }`.
+3. `actions = this.fixActions(modelOutput)`.
+4. memory bookkeeping.
+5. original: `actionResults = await this.doMultiAction(actions)` (performs the action).
+6. returns `{ done }` from `actionResults[last].isDone`.
 
-## 4. Changes made (all in `navigator.ts`, branch `guide-mode`)
+## 4. Changes made
 
-### Change A — hardcoded flag (top of file, just under `const logger = createLogger('NavigatorAgent');`)
+### Stage 1 — guide-mode branch (in `navigator.ts`)
+
+**A. Hardcoded flag** (top of file, under `const logger = createLogger('NavigatorAgent');`):
 
 ```ts
 // TEMP (napi Stage 1): hardcoded guide-mode switch. Moves to settings later.
 const GUIDE_MODE = true;
 ```
 
-WARNING: hardcoded `true`. The extension currently CANNOT do normal Nanobrowser auto-mode.
-Replacing this with a real setting is a priority next step.
+WARNING: still hardcoded `true`. The extension currently CANNOT do normal auto-mode.
+Making this a real setting is the next Stage 1 item.
 
-### Change B — new method (inside `class NavigatorAgent`, placed immediately before `private async doMultiAction(`)
+**B. `waitForUserStep()`** — new method in `class NavigatorAgent`, just before `private async doMultiAction(`.
+Originally polled the tab URL every 1.5s for up to 2 min; `true` on URL change, `false` on timeout,
+plus `paused/stopped` checks. **Now updated in Stage 2 (see below) to also race a click signal.**
 
-```ts
-  /**
-   * GUIDE MODE (napi): pause the loop and wait for the user to do the step themselves.
-   * v1: detect completion by the page URL changing. Times out after 2 minutes.
-   * Requires the side panel to stay open (keeps the service worker alive).
-   */
-  private async waitForUserStep(timeoutMs = 120_000): Promise<boolean> {
-    const page = await this.context.browserContext.getCurrentPage();
-    const startTab = await chrome.tabs.get(page.tabId);
-    const beforeUrl = startTab.url ?? '';
-    logger.info('GUIDE MODE - waiting for user. Current URL:', beforeUrl);
+**C. The guide branch** — inside `execute()`, replacing `actionResults = await this.doMultiAction(actions);`
+(right after `// take the actions`). In guide mode it:
+- emits `Your step: <next_goal>` as a `STEP_OK` event,
+- spotlights the target element via `page._updateState(useVision, targetIndex, guideStepId)`,
+- registers a click waiter and tells content scripts to watch the marked element,
+- calls `await this.waitForUserStep(...)`,
+- returns a synthetic `ActionResult` (never `isDone: true`).
+Otherwise `else { actionResults = await this.doMultiAction(actions); }`.
 
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (this.context.paused || this.context.stopped) return false;
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      try {
-        const nowTab = await chrome.tabs.get(page.tabId);
-        const nowUrl = nowTab.url ?? '';
-        if (nowUrl && nowUrl !== beforeUrl) {
-          logger.info('GUIDE MODE - user acted. URL changed:', beforeUrl, '->', nowUrl);
-          return true;
-        }
-      } catch (e) {
-        logger.warning('GUIDE MODE - could not read tab during wait', e);
-      }
-    }
-    logger.warning('GUIDE MODE - timed out waiting for the user');
-    return false;
-  }
-```
+Committed: `Stage 1: guide-mode stub`, `Stage 2: pauses and waits (URL detection)`,
+`Stage 2: spotlight the target element`.
 
-### Change C — the guide branch (inside `execute()`, replacing the single line `actionResults = await this.doMultiAction(actions);` that came right after the `// take the actions` comment)
+### Stage 2 (part 2) — click detection for non-navigation steps  **[IMPLEMENTED, NOT COMMITTED]**
 
-```ts
-      // take the actions
-      if (GUIDE_MODE) {
-        const nextGoal = modelOutput.current_state?.next_goal ?? '(no goal text)';
-        logger.info('GUIDE MODE - step for user:', nextGoal);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `Your step: ${nextGoal}`);
+When the URL does not change, detect a real user click on the spotlighted element.
 
-        // spotlight the target element on the page (only if this step targets one)
-        try {
-          const step = actions[0];
-          const actionName = Object.keys(step)[0];
-          const actionInstance = this.actionRegistry.getAction(actionName);
-          const targetIndex = actionInstance?.getIndexArg(step[actionName] as Record<string, unknown>);
-          if (targetIndex !== null && targetIndex !== undefined) {
-            const page = await this.context.browserContext.getCurrentPage();
-            await page._updateState(this.context.options.useVision, targetIndex);
-            logger.info('GUIDE MODE - spotlighting element index', targetIndex);
-          }
-        } catch (e) {
-          logger.warning('GUIDE MODE - could not spotlight target', e);
-        }
+Mechanism:
+1. Navigator creates a unique `guideStepId` via `crypto.randomUUID()`.
+2. Registers a pending click waiter **before** the user can click.
+3. `buildDomTree` marks the spotlighted element with `data-napi-guide-target="<guideStepId>"`.
+4. Background broadcasts `guide_watch_target` to content scripts in **all frames**.
+5. Content script finds `[data-napi-guide-target]`, adds a one-shot **capturing** click listener.
+6. Only `event.isTrusted` clicks count — page JS calling `.click()` does NOT advance the guide.
+7. On a real click, content script sends `guide_target_clicked` (with step id) to the background.
+8. Background validates `sender.tab.id`, resolves the matching pending waiter.
+9. `waitForUserStep()` **races** the click signal against URL-change polling; first one wins.
+   2-min timeout and `paused/stopped` checks retained. Proper listener cleanup on resolve/timeout.
 
-        // Stage 2: pause and wait for the USER to perform the step
-        const userActed = await this.waitForUserStep();
+Files changed (Stage 2 part 2):
 
-        actionResults = [
-          new ActionResult({
-            extractedContent: userActed
-              ? `user completed the step: "${nextGoal}"`
-              : `timed out - user did not complete: "${nextGoal}"`,
-            includeInMemory: true,
-          }),
-        ];
-      } else {
-        actionResults = await this.doMultiAction(actions);
-      }
-```
+| File | Change |
+|---|---|
+| `chrome-extension/src/background/guide-step.ts` | **new** — in-memory pending click waiters keyed by `guideStepId`. Exports `waitForGuideStepClick(tabId, stepId)`, `notifyGuideStepClick(tabId, stepId)`, `watchGuideStepTarget(tabId, stepId)`. Broadcasts the watch message to all frames; ignores restricted/third-party frames. |
+| `pages/content/src/index.ts` | `chrome.runtime.onMessage` handler for `guide_watch_target`; locates `[data-napi-guide-target]`; adds/removes a one-shot trusted capturing click listener; sends `guide_target_clicked`. |
+| `chrome-extension/src/background/index.ts` | `chrome.runtime.onMessage` handler for `guide_target_clicked`; reads `sender.tab.id`; calls `notifyGuideStepClick(tabId, stepId)`. |
+| `chrome-extension/public/buildDomTree.js` | accepts optional `guideTargetId`; clears old `data-napi-guide-target` markers; adds the marker only to the focused element. |
+| `chrome-extension/src/background/browser/dom/service.ts` | threads optional `guideTargetId` into the injected `buildDomTree()` call. |
+| `chrome-extension/src/background/browser/page.ts` | threads `guideTargetId` through `getClickableElements()` and `_updateState()`. |
+| `chrome-extension/src/background/agent/agents/navigator.ts` | imports the guide-step helper; creates/registers the click waiter before spotlighting; calls `_updateState(useVision, targetIndex, guideStepId)`; tells content scripts to watch; updates `waitForUserStep()` to race click vs URL. |
 
-Everything after this (`this.context.actionResults = actionResults;` etc.) is unchanged.
+Verification: `pnpm build` -> `Tasks: 5 successful, 5 total`. Manual test on
+`https://www.w3schools.com/howto/howto_js_dropdown.asp`, task "Open the dropdown menu." — clicking the
+in-page "Click Me" button advanced the guide with no URL change. Console:
+`GUIDE MODE - spotlighted target clicked` / `GUIDE MODE — user clicked the spotlighted element` /
+`Executor — Step 3 / 100`.
 
-### Git state
+## 5. Current behaviour (guide mode is always on)
 
-Branch `guide-mode`, pushed to `origin`. Commits (run `git log --oneline` to confirm current HEAD):
-
-- Stage 1: guide-mode stub - intercept actions before execution
-- Stage 2: guide mode pauses and waits for user action (URL-change detection)
-- Stage 2: spotlight the target element while waiting for user
-
-## 5. Current behaviour (guide mode is always on right now)
-
-Per Navigator step:
-
-1. LLM decides an action.
-2. Guide branch runs instead of `doMultiAction`.
-3. Emits `Your step: <next_goal>` as a `STEP_OK` event (shows in the panel as a plain status line, not a prominent card).
-4. If the action has a target element index, calls `page._updateState(useVision, index)` -> that element is visually emphasized on the page. Confirmed working.
-5. `waitForUserStep()` blocks: polls the tab URL every 1.5s for up to 2 min. Resolves `true` on URL change, `false` on timeout.
-6. Returns a synthetic `ActionResult` (never `isDone: true`).
-7. Loop continues; Planner eventually sets `done` and the task ends.
-
-Tested end-to-end on `linear.app` with task "Go to the Pricing page": instruction shown, Pricing link
-spotlighted, loop paused, user clicked Pricing, URL change detected, loop resumed and finished.
+Per Navigator step: LLM decides -> guide branch runs -> emits `Your step:` -> spotlights the target
+(if indexed) and marks it for click detection -> `waitForUserStep()` blocks, resolving on the FIRST
+of: URL change, trusted click on the spotlighted element, or 2-min timeout -> returns a synthetic
+`ActionResult` -> loop continues; Planner eventually sets `done`.
 
 ## 6. Known limitations / NOT done
 
-1. **`GUIDE_MODE` is hardcoded `true`** — no auto-mode, no user toggle.
-2. **Completion detection is URL-change only** — in-page clicks (dropdowns, modals, form fields,
-   buttons that don't navigate) are NOT detected -> `waitForUserStep` times out after 2 min and the
-   loop limps forward. Blocks flows like "create a LinkedIn post".
-3. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome happened.
-   The Navigator's result is synthetic.
-4. **MV3 service worker idle kill (~30s)** — the wait only survives because the side panel sends
+1. **`GUIDE_MODE` hardcoded `true`** — no auto-mode, no user toggle.
+2. **Detection covers click + URL change only.** No detection of: typing into a field / value match,
+   or generic meaningful DOM changes near a control where a click alone isn't enough.
+3. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome
+   happened. The Navigator's result is synthetic. (Stage 3.)
+4. **"Task is complete" wait** — the model can output a no-target completion action; guide mode still
+   waits the full 2 min on it because there's no completion handling. Should be solved with the
+   Checker / real completion semantics, not another synthetic click.
+5. **MV3 service worker idle kill (~30s)** — the wait only survives because the side panel sends
    heartbeats. The side panel must stay open during a guided task.
-5. **`maxActionsPerStep` is not forced to 1** — the LLM can still propose multiple actions;
-   only `actions[0]` is used for the spotlight.
-6. **Panel UI unchanged** — no progress bar, no "why?", no "waiting for you" state, no skill map.
-7. **Weak free models** — `hy3` works but sometimes hallucinates stale context; Nanobrowser's
-   prompt-injection guard logs `task_override` warnings (harmless).
-8. **`page._updateState` is a semi-internal method** (underscore prefix). It works, but a cleaner
-   highlight API (or Driver.js) would be better long-term.
+6. **`maxActionsPerStep` not forced to 1** — the LLM can propose multiple actions; only `actions[0]`
+   is used.
+7. **Panel UI unchanged** — no progress bar, no "why?", no "waiting" state, no skill map.
+8. **`page._updateState` is a semi-internal method** (underscore prefix). Works, but a cleaner
+   highlight API (or Driver.js) is better long-term.
+9. **`data-napi-guide-target` attribute** mutates the live element — fine on normal sites; a
+   framework that diffs/re-renders the DOM could strip it. First suspect if detection flakes on a
+   specific site.
+10. **Stage 2 part 2 is uncommitted.** `git diff`, confirm only the intended files, commit on
+    `guide-mode`.
 
-## 7. Next steps (in order)
+## 7. Immediate next steps
 
-1. **Click detection for non-navigation steps.**
-   - Look at `pages/content/src/` and how it messages the background.
-   - When guide mode spotlights element `index`, also tell the content script to attach a one-shot
-     listener to that element; on the user's real click, post a message to the background.
-   - Add a message handler in `chrome-extension/src/background/index.ts`; have `waitForUserStep()`
-     resolve on **either** that message **or** a URL change (race), whichever first.
-2. **Make `mode` a real setting.**
-   - Add `mode: 'auto' | 'guide'` to general settings in `packages/storage` (`generalSettingsStore`).
-   - Add a toggle in `pages/options`.
-   - Read it in `setupExecutor()` (`chrome-extension/src/background/index.ts`) and pass into
-     `agentOptions`. Also set `maxActionsPerStep: 1` when `mode === 'guide'`.
-   - In `navigator.ts`, replace `const GUIDE_MODE = true` with
-     `const guideMode = this.context.options.mode === 'guide'`.
-3. **Checker (Stage 3).** After `waitForUserStep` returns, verify the outcome:
-   - Tier 2: compare current URL + key DOM against the step's expected state.
-   - Tier 1 (later): call the flagship tool's API.
-   - Return a real pass/fail; on fail, don't advance — trigger recovery.
-4. **Panel:** render the step as a visible card + a "waiting for you" indicator.
-   `pages/side-panel/src/SidePanel.tsx`.
+1. **Final regression test.** Reload the extension AND reload the test page (`Ctrl+R`). Verify an
+   in-page click advances immediately.
+2. **Review & commit the Stage 2 click work.** `git diff`; confirm only the click-detection files
+   changed; commit on `guide-mode`; do not touch `master`.
+3. **Finish Stage 2:**
+   - Detect typing into spotlighted input fields — pass the expected text to the content script,
+     advance only when the target field's real value matches.
+   - Decide how to detect meaningful local DOM changes for controls where click alone is
+     insufficient.
+   - Keep click / URL / typing / DOM detection as a race with proper cleanup.
+4. **Fix the "Task is complete" wait** — investigate why the Navigator waits 2 min on a no-target
+   completion action. Handle it with the Checker / real completion semantics, not another synthetic
+   click.
+5. **Then follow `NAPI_ROADMAP.md` order:** replace hardcoded `GUIDE_MODE` with the auto/guide
+   setting -> build the **Checker** (the go/no-go gate) -> then Skill Map, Recovery, flagship
+   missions, side-panel redesign.
 
-## 8. Rules for the next developer (avoid mistakes)
+## 8. Rules for the next developer
 
-- **Work on the `guide-mode` branch.** Never commit to `master` (pristine upstream).
-- **All napi logic so far lives in one file:** `chrome-extension/src/background/agent/agents/navigator.ts`.
-- **After any code change:** `pnpm build`, then reload the extension at `chrome://extensions`.
-  Watch the "service worker" console for `GUIDE MODE` logs.
-- **Keep the side panel open** while testing a guided task (service-worker keep-alive).
+- **Work on `guide-mode`.** Never commit to `master`.
+- **After any code change:** `pnpm build`, reload the extension at `chrome://extensions`, **and
+  reload the test page**. Watch the "service worker" console for `GUIDE MODE` logs.
+- **Keep the side panel open** while testing a guided task.
 - **Do not delete `LICENSE`** (Apache-2.0 — required for building on Nanobrowser).
-- **Model:** use `hy3` on the Kira provider.
+- **Model:** `hy3` on the Kira provider.
 - **`this.context.options`** holds `maxSteps`, `maxFailures`, `maxActionsPerStep`, `useVision`,
   `planningInterval` — thread a `mode` field through from `setupExecutor` here.
-- The Executor loop and Planner are **unchanged** — don't modify `executor.ts` or `planner.ts`
-  unless a step explicitly calls for it.
+- The Executor loop and Planner are **unchanged** — don't modify `executor.ts` / `planner.ts` unless
+  a step explicitly calls for it.
+- **`chrome-extension/public/buildDomTree.js`** is hand-edited — confirm no build step regenerates it
+  before relying on the `guideTargetId` handling.
