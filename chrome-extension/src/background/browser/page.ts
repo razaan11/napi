@@ -178,7 +178,11 @@ export default class Page {
     }
   }
 
-  async getClickableElements(showHighlightElements: boolean, focusElement: number): Promise<DOMState | null> {
+  async getClickableElements(
+    showHighlightElements: boolean,
+    focusElement: number,
+    guideTargetId?: string,
+  ): Promise<DOMState | null> {
     if (!this._validWebPage) {
       return null;
     }
@@ -188,6 +192,8 @@ export default class Page {
       showHighlightElements,
       focusElement,
       this._config.viewportExpansion,
+      false,
+      guideTargetId,
     );
   }
 
@@ -375,7 +381,7 @@ export default class Page {
     return updatedState;
   }
 
-  async _updateState(useVision = false, focusElement = -1): Promise<PageState> {
+  async _updateState(useVision = false, focusElement = -1, guideTargetId?: string): Promise<PageState> {
     try {
       // Test if page is still accessible
       // @ts-expect-error - puppeteerPage is not null, already checked before calling this function
@@ -399,7 +405,7 @@ export default class Page {
       // This part would need to be implemented based on your DomService logic
       // showHighlightElements is true if either useVision or displayHighlights is true
       const displayHighlights = this._config.displayHighlights || useVision;
-      const content = await this.getClickableElements(displayHighlights, focusElement);
+      const content = await this.getClickableElements(displayHighlights, focusElement, guideTargetId);
       if (!content) {
         logger.warning('Failed to get clickable elements');
         // Return last known good state if available

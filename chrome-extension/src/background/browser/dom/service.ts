@@ -97,6 +97,7 @@ export async function getClickableElements(
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
+  guideTargetId?: string,
 ): Promise<DOMState> {
   const [elementTree, selectorMap] = await _buildDomTree(
     tabId,
@@ -105,6 +106,7 @@ export async function getClickableElements(
     focusElement,
     viewportExpansion,
     debugMode,
+    guideTargetId,
   );
   return { elementTree, selectorMap };
 }
@@ -116,6 +118,7 @@ async function _buildDomTree(
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
+  guideTargetId?: string,
 ): Promise<[DOMElementNode, Map<number, DOMElementNode>]> {
   // If URL is provided and it's about:blank, return a minimal DOM tree
   if (isNewTabPage(url) || url.startsWith('chrome://')) {
@@ -149,6 +152,7 @@ async function _buildDomTree(
         startId: 0,
         startHighlightIndex: 0,
         debugMode,
+        guideTargetId,
       },
     ],
   });

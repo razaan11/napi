@@ -8,10 +8,22 @@ window.buildDomTree = (
     startHighlightIndex: 0,
   },
 ) => {
-  const { showHighlightElements, focusHighlightIndex, viewportExpansion, startHighlightIndex, startId, debugMode } =
-    args;
+  const {
+    showHighlightElements,
+    focusHighlightIndex,
+    viewportExpansion,
+    startHighlightIndex,
+    startId,
+    debugMode,
+    guideTargetId,
+  } = args;
   // Make sure to do highlight elements always, but we can hide the highlights if needed
   const doHighlightElements = true;
+
+  // The content script uses this short-lived marker to find the current guide target.
+  document.querySelectorAll('[data-napi-guide-target]').forEach(element => {
+    element.removeAttribute('data-napi-guide-target');
+  });
 
   let highlightIndex = startHighlightIndex; // Reset highlight index
 
@@ -1209,6 +1221,9 @@ window.buildDomTree = (
         if (doHighlightElements) {
           if (focusHighlightIndex >= 0) {
             if (focusHighlightIndex === nodeData.highlightIndex) {
+              if (guideTargetId) {
+                node.setAttribute('data-napi-guide-target', guideTargetId);
+              }
               highlightElement(node, nodeData.highlightIndex, parentIframe);
             }
           } else {

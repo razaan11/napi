@@ -18,6 +18,7 @@ import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
+import { notifyGuideStepClick } from './guide-step';
 
 const logger = createLogger('background');
 
@@ -66,11 +67,16 @@ analyticsSettingsStore.subscribe(() => {
   });
 });
 
-// Listen for simple messages (e.g., from options page)
-chrome.runtime.onMessage.addListener(() => {
-  // Handle other message types if needed in the future
-  // Return false if response is not sent asynchronously
-  // return false;
+// Listen for simple messages, including clicks reported by content scripts.
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type !== 'guide_target_clicked' || typeof message.stepId !== 'string') return;
+
+  const tabId = sender.tab?.id;
+  if (tabId === undefined) return;
+
+  if (notifyGuideStepClick(tabId, message.stepId)) {
+    logger.info('GUIDE MODE - spotlighted target clicked', tabId);
+  }
 });
 
 // Setup connection listener for long-lived connections (e.g., side panel)

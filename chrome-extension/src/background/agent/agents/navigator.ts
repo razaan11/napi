@@ -28,6 +28,7 @@ import { convertZodToJsonSchema, repairJsonString } from '@src/background/utils'
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
+import { waitForGuideStepClick, watchGuideStepTarget } from '@src/background/guide-step';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -209,8 +210,32 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
 
+        let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
+
+        // spotlight the target element on the page (only if this step targets one)
+        try {
+          const step = actions[0];
+          const actionName = Object.keys(step)[0];
+          const actionInstance = this.actionRegistry.getAction(actionName);
+          const targetIndex = actionInstance?.getIndexArg(step[actionName] as Record<string, unknown>);
+          if (targetIndex !== null && targetIndex !== undefined) {
+            const page = await this.context.browserContext.getCurrentPage();
+            const guideStepId = crypto.randomUUID();
+
+            // Register first, so a fast user click cannot be missed.
+            guideStepClick = waitForGuideStepClick(page.tabId, guideStepId);
+
+            await page._updateState(this.context.options.useVision, targetIndex, guideStepId);
+            await watchGuideStepTarget(page.tabId, guideStepId);
+
+            logger.info('🧭 GUIDE MODE — spotlighting element index', targetIndex);
+          }
+        } catch (e) {
+          logger.warning('🧭 GUIDE MODE — could not spotlight target', e);
+        }
+
         // Stage 2: pause and wait for the USER to perform the step
-        const userActed = await this.waitForUserStep();
+        const userActed = await this.waitForUserStep(guideStepClick);
 
         actionResults = [
           new ActionResult({
@@ -388,29 +413,65 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
    * v1: detect completion by the page URL changing. Times out after 2 minutes.
    * Requires the side panel to stay open (keeps the service worker alive).
    */
-  private async waitForUserStep(timeoutMs = 120_000): Promise<boolean> {
+  /**
+   * GUIDE MODE (napi): wait for either a URL change or a real click on the
+   * spotlighted element. Times out after 2 minutes.
+   */
+  private async waitForUserStep(
+    guideStepClick?: ReturnType<typeof waitForGuideStepClick>,
+    timeoutMs = 120_000,
+  ): Promise<boolean> {
     const page = await this.context.browserContext.getCurrentPage();
     const startTab = await chrome.tabs.get(page.tabId);
     const beforeUrl = startTab.url ?? '';
     logger.info('🧭 GUIDE MODE — waiting for user. Current URL:', beforeUrl);
 
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (this.context.paused || this.context.stopped) return false;
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      try {
-        const nowTab = await chrome.tabs.get(page.tabId);
-        const nowUrl = nowTab.url ?? '';
-        if (nowUrl && nowUrl !== beforeUrl) {
-          logger.info('🧭 GUIDE MODE — user acted. URL changed:', beforeUrl, '→', nowUrl);
-          return true;
+    let stillWaiting = true;
+
+    const waitForUrlChange = async (): Promise<boolean> => {
+      const start = Date.now();
+
+      while (stillWaiting && Date.now() - start < timeoutMs) {
+        if (this.context.paused || this.context.stopped) return false;
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        try {
+          const nowTab = await chrome.tabs.get(page.tabId);
+          const nowUrl = nowTab.url ?? '';
+
+          if (nowUrl && nowUrl !== beforeUrl) {
+            logger.info('🧭 GUIDE MODE — user acted. URL changed:', beforeUrl, '→', nowUrl);
+            return true;
+          }
+        } catch (e) {
+          logger.warning('🧭 GUIDE MODE — could not read tab during wait', e);
         }
-      } catch (e) {
-        logger.warning('🧭 GUIDE MODE — could not read tab during wait', e);
       }
+
+      return false;
+    };
+
+    try {
+      const userActed = guideStepClick
+        ? await Promise.race([
+            waitForUrlChange(),
+            guideStepClick.promise.then(() => {
+              logger.info('🧭 GUIDE MODE — user clicked the spotlighted element');
+              return true;
+            }),
+          ])
+        : await waitForUrlChange();
+
+      if (!userActed) {
+        logger.warning('🧭 GUIDE MODE — timed out waiting for the user');
+      }
+
+      return userActed;
+    } finally {
+      stillWaiting = false;
+      guideStepClick?.cancel();
     }
-    logger.warning('🧭 GUIDE MODE — timed out waiting for the user');
-    return false;
   }
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
