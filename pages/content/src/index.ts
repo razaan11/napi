@@ -13,10 +13,43 @@ chrome.runtime.onMessage.addListener(message => {
 
   if (!target) return;
 
+  const stepId: string = message.stepId;
+  const mode: 'click' | 'value' = message.mode === 'value' ? 'value' : 'click';
+
+  if (mode === 'value') {
+    // Advance when the user has typed the expected text into the spotlighted field.
+    const expected = String(message.expectedText ?? '')
+      .trim()
+      .toLowerCase();
+
+    const onInput = (event: Event) => {
+      if (!event.isTrusted) return;
+      const el = target as HTMLInputElement & HTMLTextAreaElement;
+      const current = String(el.value ?? el.textContent ?? '')
+        .trim()
+        .toLowerCase();
+      if (expected.length > 0 && current === expected) {
+        chrome.runtime.sendMessage({ type: 'guide_target_matched', stepId }).catch(() => {
+          // The background worker may already have moved on.
+        });
+        stopWatchingTarget?.();
+      }
+    };
+
+    target.addEventListener('input', onInput, { capture: true });
+
+    stopWatchingTarget = () => {
+      target.removeEventListener('input', onInput, { capture: true });
+      stopWatchingTarget = null;
+    };
+    return;
+  }
+
+  // mode === 'click'
   const onClick = (event: MouseEvent) => {
     if (!event.isTrusted) return;
 
-    chrome.runtime.sendMessage({ type: 'guide_target_clicked', stepId: message.stepId }).catch(() => {
+    chrome.runtime.sendMessage({ type: 'guide_target_clicked', stepId }).catch(() => {
       // The background worker may already have moved on.
     });
 

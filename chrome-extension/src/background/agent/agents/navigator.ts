@@ -28,7 +28,7 @@ import { convertZodToJsonSchema, repairJsonString } from '@src/background/utils'
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
-import { waitForGuideStepClick, watchGuideStepTarget } from '@src/background/guide-step';
+import { waitForGuideStepClick, watchGuideStepTarget, type GuideStepWatch } from '@src/background/guide-step';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -225,6 +225,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
 
+          // For an `input_text` step, advance when the field value matches the expected
+          // text; for every other step, advance on a real click.
+          const stepArgs = (step[actionName] ?? {}) as Record<string, unknown>;
+          const watch: GuideStepWatch =
+            actionName === 'input_text' && typeof stepArgs.text === 'string'
+              ? { mode: 'value', expectedText: stepArgs.text }
+              : { mode: 'click' };
+
           let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
 
           // spotlight the target element on the page
@@ -232,13 +240,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             const page = await this.context.browserContext.getCurrentPage();
             const guideStepId = crypto.randomUUID();
 
-            // Register first, so a fast user click cannot be missed.
+            // Register first, so a fast user action cannot be missed.
             guideStepClick = waitForGuideStepClick(page.tabId, guideStepId);
 
             await page._updateState(this.context.options.useVision, targetIndex, guideStepId);
-            await watchGuideStepTarget(page.tabId, guideStepId);
+            await watchGuideStepTarget(page.tabId, guideStepId, watch);
 
-            logger.info('🧭 GUIDE MODE — spotlighting element index', targetIndex);
+            logger.info('🧭 GUIDE MODE — spotlighting element index', targetIndex, `(watch: ${watch.mode})`);
           } catch (e) {
             logger.warning('🧭 GUIDE MODE — could not spotlight target', e);
           }

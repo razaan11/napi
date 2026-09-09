@@ -67,15 +67,20 @@ analyticsSettingsStore.subscribe(() => {
   });
 });
 
-// Listen for simple messages, including clicks reported by content scripts.
+// Listen for simple messages, including guide-step completion reported by content scripts.
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message?.type !== 'guide_target_clicked' || typeof message.stepId !== 'string') return;
+  const isClick = message?.type === 'guide_target_clicked';
+  const isMatch = message?.type === 'guide_target_matched';
+  if ((!isClick && !isMatch) || typeof message.stepId !== 'string') return;
 
   const tabId = sender.tab?.id;
   if (tabId === undefined) return;
 
   if (notifyGuideStepClick(tabId, message.stepId)) {
-    logger.info('GUIDE MODE - spotlighted target clicked', tabId);
+    logger.info(
+      isMatch ? 'GUIDE MODE - spotlighted input matched expected text' : 'GUIDE MODE - spotlighted target clicked',
+      tabId,
+    );
   }
 });
 

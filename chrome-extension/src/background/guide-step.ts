@@ -41,15 +41,29 @@ export function notifyGuideStepClick(tabId: number, stepId: string): boolean {
   return true;
 }
 
+export interface GuideStepWatch {
+  /** 'click' = advance on a real click; 'value' = advance when the field value matches expectedText. */
+  mode: 'click' | 'value';
+  expectedText?: string;
+}
+
 /** Tell every injected page frame to watch for this step's marked target. */
-export async function watchGuideStepTarget(tabId: number, stepId: string): Promise<void> {
+export async function watchGuideStepTarget(
+  tabId: number,
+  stepId: string,
+  watch: GuideStepWatch = { mode: 'click' },
+): Promise<void> {
   const frames = await chrome.webNavigation.getAllFrames({ tabId });
   const frameIds = frames.map(frame => frame.frameId);
 
   await Promise.all(
     frameIds.map(async frameId => {
       try {
-        await chrome.tabs.sendMessage(tabId, { type: 'guide_watch_target', stepId }, { frameId });
+        await chrome.tabs.sendMessage(
+          tabId,
+          { type: 'guide_watch_target', stepId, mode: watch.mode, expectedText: watch.expectedText },
+          { frameId },
+        );
       } catch {
         // Content scripts cannot run in some restricted frames.
       }
