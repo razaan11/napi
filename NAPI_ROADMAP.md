@@ -14,7 +14,7 @@ listed at the end and is NOT in scope yet.
 |---|---|---|
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element | DONE except the `mode` toggle |
-| 2 | Pause & wait, detect the user's action | PARTIAL — URL-change + trusted-click detection done (click work UNCOMMITTED); typing/value-match + DOM-change detection missing; "task complete" no-target wait unfixed |
+| 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | NOT STARTED |
 | 4 | Skill Map | NOT STARTED |
 | 5 | Recovery | NOT STARTED |
@@ -24,39 +24,36 @@ listed at the end and is NOT in scope yet.
 
 ---
 
-## Stage 2 (finish) — reliable step-completion detection
+## Stage 2 — reliable step-completion detection  **[DONE]**
 
 **Goal:** know the user completed the step for ALL step types, not just navigations.
 
-**DONE:**
+**DONE + committed + verified:**
 - URL-change detection (`waitForUserStep()` polling).
 - Trusted-click detection on the spotlighted element, no URL change needed. Mechanism:
   `guideStepId` (`crypto.randomUUID()`) -> `data-napi-guide-target` marker added by `buildDomTree`
   -> `guide_watch_target` broadcast to all frames -> content script one-shot capturing listener,
-  `event.isTrusted` only -> `guide_target_clicked` back to background -> `notifyGuideStepClick`
-  resolves the pending waiter -> `waitForUserStep()` races click vs URL. New file
-  `chrome-extension/src/background/guide-step.ts`. **This work is implemented but UNCOMMITTED** —
-  review `git diff`, commit only the intended files on `guide-mode`.
-- Verified: W3Schools dropdown (`howto_js_dropdown.asp`), task "Open the dropdown menu." advances on
-  the in-page click.
+  `event.isTrusted` only -> `guide_target_clicked` -> `notifyGuideStepClick` resolves the pending
+  waiter -> `waitForUserStep()` races click vs URL. File `chrome-extension/src/background/guide-step.ts`.
+  Verified: W3Schools dropdown, "Open the dropdown menu." advances on the in-page click.
+- **Typing / value-match detection** (fix B, commit `e66a93e`). For an `input_text` step,
+  `watchGuideStepTarget(tabId, stepId, { mode: 'value', expectedText })`; the content script attaches
+  an `input` listener and sends `guide_target_matched` when `el.value` (trimmed, lower-cased) equals
+  the expected text; background resolves the same waiter. Verified: google.com, "Type \"hello world\"
+  in the search box." advances when the text matches.
+- **No-target "task complete" handling** (fix A, commit `31ca4a8`). The guide branch now checks
+  `isUserStep` (does the action have a target element index). If not (`done`, `wait`, agent
+  navigation) it runs the action via `doMultiAction` instead of guide-waiting — so `done` finishes
+  the task instead of hanging 2 minutes. Verified.
 
-**STILL TO DO:**
-- **Typing into spotlighted input fields.** Pass the step's expected text to the content script;
-  advance only when the target field's real `value` matches it.
-- **Meaningful local DOM change** detection for controls where a click alone isn't enough
-  (e.g. an expander whose click target differs from the thing that changes). Decide the signal
-  (attribute change like `aria-expanded`, child added, etc.).
-- Keep click / URL / typing / DOM detection as a **race** with proper listener cleanup.
-- **"Task is complete" wait:** the model can emit a no-target completion action; guide mode still
-  waits the full 2 min on it. Investigate and fix as part of Checker / real completion semantics —
-  do NOT paper over it with another synthetic click.
-
-**Regression test before committing:** reload the extension AND reload the test page (`Ctrl+R`);
-confirm an in-page click still advances immediately.
-
-**Done when:** guiding a multi-step in-page flow (open a dropdown -> pick an item -> type a value ->
-confirm) advances on each real user action without timing out, and a no-target completion step does
-not hang for 2 minutes.
+**Optional refinements (not blocking; do later if a real mission needs them):**
+- **Generic local DOM-change** detection for controls where a click alone isn't the completion signal
+  (e.g. an expander whose `aria-expanded` flips on a different node). Add a `mode: 'dom'` with a
+  MutationObserver near the target.
+- **`go_to_url`** currently runs via fix A (the extension navigates for the user). For a true
+  guide-only experience, detect `go_to_url` and instead show "navigate to X yourself" + wait for the
+  URL change.
+- Cosmetic: `waitForUserStep` logs "user clicked the spotlighted element" even on a value match.
 
 ---
 

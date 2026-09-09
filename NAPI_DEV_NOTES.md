@@ -151,23 +151,39 @@ in-page "Click Me" button advanced the guide with no URL change. Console:
 `GUIDE MODE - spotlighted target clicked` / `GUIDE MODE — user clicked the spotlighted element` /
 `Executor — Step 3 / 100`.
 
+### Stage 2 fix A + fix B  **[DONE, committed]**
+
+- **Fix A** (`31ca4a8`): the guide branch computes `isUserStep` = "does `actions[0]` have a target
+  element index". If not (`done`, `wait`, agent navigation) it runs the action via `doMultiAction`
+  instead of guide-waiting. Stops the 2-minute hang on `done` steps. `go_to_url` currently also
+  runs this way (extension navigates for the user).
+- **Fix B** (`e66a93e`): typing / value-match detection. `guide-step.ts` `watchGuideStepTarget` now
+  takes `{ mode: 'click' | 'value', expectedText? }` and includes it in the `guide_watch_target`
+  message. For an `input_text` action the navigator passes `{ mode: 'value', expectedText: args.text }`.
+  Content script, `mode: 'value'`: attaches an `input` listener, compares `el.value` (trimmed,
+  lower-cased) to `expectedText`, sends `guide_target_matched` on match. `background/index.ts` handles
+  both `guide_target_clicked` and `guide_target_matched` via `notifyGuideStepClick`.
+  Verified on google.com: "Type \"hello world\" in the search box" advances when the value matches.
+
 ## 5. Current behaviour (guide mode is always on)
 
-Per Navigator step: LLM decides -> guide branch runs -> emits `Your step:` -> spotlights the target
-(if indexed) and marks it for click detection -> `waitForUserStep()` blocks, resolving on the FIRST
-of: URL change, trusted click on the spotlighted element, or 2-min timeout -> returns a synthetic
-`ActionResult` -> loop continues; Planner eventually sets `done`.
+Per Navigator step: LLM decides -> guide branch runs. If the action has no target element index
+(`done`, `wait`, `go_to_url`, ...) it runs normally via `doMultiAction`. Otherwise it emits
+`Your step:`, spotlights the target + marks it (`data-napi-guide-target`), tells content scripts to
+watch it in `click` mode (default) or `value` mode (for `input_text`, with the expected text), then
+`waitForUserStep()` blocks, resolving on the FIRST of: URL change, trusted click, value match, or
+2-min timeout -> returns a synthetic `ActionResult` -> loop continues; Planner eventually sets `done`.
 
 ## 6. Known limitations / NOT done
 
-1. **`GUIDE_MODE` hardcoded `true`** — no auto-mode, no user toggle.
-2. **Detection covers click + URL change only.** No detection of: typing into a field / value match,
-   or generic meaningful DOM changes near a control where a click alone isn't enough.
-3. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome
-   happened. The Navigator's result is synthetic. (Stage 3.)
-4. **"Task is complete" wait** — the model can output a no-target completion action; guide mode still
-   waits the full 2 min on it because there's no completion handling. Should be solved with the
-   Checker / real completion semantics, not another synthetic click.
+1. **`GUIDE_MODE` hardcoded `true`** — no auto-mode, no user toggle. **This is the next task.**
+2. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome
+   happened. The Navigator's result is synthetic. (Stage 3, the go/no-go gate.)
+3. **`go_to_url` is not guided** — it runs via fix A, so the extension navigates for the user
+   instead of telling them to. Fine for now; refine later.
+4. **No generic DOM-change detection** — a control whose completion signal is neither a click on the
+   marked element, a URL change, nor an input value (e.g. `aria-expanded` flipping elsewhere) will
+   time out. Add a `mode: 'dom'` with a MutationObserver if a real mission needs it.
 5. **MV3 service worker idle kill (~30s)** — the wait only survives because the side panel sends
    heartbeats. The side panel must stay open during a guided task.
 6. **`maxActionsPerStep` not forced to 1** — the LLM can propose multiple actions; only `actions[0]`
@@ -178,27 +194,17 @@ of: URL change, trusted click on the spotlighted element, or 2-min timeout -> re
 9. **`data-napi-guide-target` attribute** mutates the live element — fine on normal sites; a
    framework that diffs/re-renders the DOM could strip it. First suspect if detection flakes on a
    specific site.
-10. **Stage 2 part 2 is uncommitted.** `git diff`, confirm only the intended files, commit on
-    `guide-mode`.
+10. Cosmetic: `waitForUserStep` logs "user clicked the spotlighted element" even on a value match.
 
 ## 7. Immediate next steps
 
-1. **Final regression test.** Reload the extension AND reload the test page (`Ctrl+R`). Verify an
-   in-page click advances immediately.
-2. **Review & commit the Stage 2 click work.** `git diff`; confirm only the click-detection files
-   changed; commit on `guide-mode`; do not touch `master`.
-3. **Finish Stage 2:**
-   - Detect typing into spotlighted input fields — pass the expected text to the content script,
-     advance only when the target field's real value matches.
-   - Decide how to detect meaningful local DOM changes for controls where click alone is
-     insufficient.
-   - Keep click / URL / typing / DOM detection as a race with proper cleanup.
-4. **Fix the "Task is complete" wait** — investigate why the Navigator waits 2 min on a no-target
-   completion action. Handle it with the Checker / real completion semantics, not another synthetic
-   click.
-5. **Then follow `NAPI_ROADMAP.md` order:** replace hardcoded `GUIDE_MODE` with the auto/guide
-   setting -> build the **Checker** (the go/no-go gate) -> then Skill Map, Recovery, flagship
-   missions, side-panel redesign.
+1. **Stage 1 finish — make `mode` a real setting.** Replace `const GUIDE_MODE = true` with
+   `this.context.options.mode === 'guide'`. See `NAPI_ROADMAP.md` "Stage 1 (finish)":
+   add `mode: 'auto' | 'guide'` to `packages/storage` general settings, a toggle in `pages/options`,
+   thread it through `setupExecutor()` -> `agentOptions` (also force `maxActionsPerStep: 1` in guide
+   mode).
+2. **Stage 3 — the Checker.** The project's go/no-go gate. See `NAPI_ROADMAP.md`.
+3. Then Skill Map, Recovery, flagship missions, side-panel redesign — roadmap order.
 
 ## 8. Rules for the next developer
 
