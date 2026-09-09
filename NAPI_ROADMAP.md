@@ -15,7 +15,7 @@ listed at the end and is NOT in scope yet.
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
-| 3 | The Checker (verification) | NOT STARTED |
+| 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`); Tiers 1 + 3, per-step `expected` spec, and calibration still to do |
 | 4 | Skill Map | NOT STARTED |
 | 5 | Recovery | NOT STARTED |
 | 6 | Missions for one flagship tool | NOT STARTED |
@@ -75,28 +75,45 @@ Reload the side panel after changing the toggle so it re-reads the setting.
 
 ## Stage 3 — the Checker (verification)
 
-**Goal:** confirm the user's action produced the correct outcome. This is napi's core
-differentiator; treat it as the highest-risk piece.
+**Goal:** confirm the user's action produced the correct outcome. napi's core differentiator; the
+highest-risk piece.
 
-**Design — 3 tiers, tried in order:**
-- **Tier 2 (build first):** after `waitForUserStep`, compare current URL + presence/absence of key
-  DOM elements against the step's `expected` spec. Reuse `browserContext.getState()`.
-- **Tier 3:** screenshot -> vision-capable model -> "does this show X?". Low confidence; never block
-  on this alone. (Kira vision models exist but need wallet balance.)
-- **Tier 1 (per flagship tool):** call the tool's own API to confirm real state (needs OAuth to the
-  flagship). Add when a flagship is chosen (Stage 6).
+### Tier 2 — structural check  **[DONE — commit `38e4a27`]**
 
-**Data model:** each step template needs an `expected` field (URL pattern, required/forbidden
-elements, optional API check).
+File: `chrome-extension/src/background/agent/checker.ts` — pure functions `verifyStep(...)` and
+`stepSignature(state)`. Called from the guide branch of `navigator.ts` after `waitForUserStep`:
+- captures a "before" fingerprint from `currentState` (already fetched at the top of `execute()`);
+- fetches an "after" state via `browserContext.getState(false)`;
+- verdict: timeout -> NOT verified; `input_text` (value already matched) -> verified; URL changed ->
+  verified; `stepSignature` (URL + interactive-element count) changed -> verified; a click with no
+  detectable change -> NOT verified.
+- verified -> emit `STEP_OK ✅ Done: <goal>`, reset `context.consecutiveFailures`, advance.
+- not verified -> emit `STEP_FAIL ⚠️ ...`, push a "ask the user to try this step again" result into
+  memory so the Planner re-issues it; on a timeout also bump `context.consecutiveFailures` (3 in a
+  row ends the task via the existing failure limit).
 
-**Suggested module:** `chrome-extension/src/background/agent/checker/` exporting
-`verifyStep(step, context): Promise<{ verified: boolean; actual; expected; delta }>`.
+Deliberately conservative: only two hard fails (timeout, dead click). Calibrate the thresholds once
+there are real missions to test against.
 
-**On fail:** do NOT advance the loop; pass the `delta` to Recovery (Stage 5).
+### Tier 3 — vision fallback  **[not built]**
 
-**Done when:** doing the wrong action is caught reliably (>90%) and the right action passes, on the
-first flagship tool. THIS IS THE GO/NO-GO GATE for the whole project — if it can't hit ~90% even on a
-tool with an API, the "we verified you can do this" premise needs rethinking.
+Screenshot -> vision-capable model -> "does this show X?". Low confidence; only as a tie-breaker,
+never block on it alone. Kira has cheap vision models but they need wallet balance.
+
+### Tier 1 — tool API  **[not built; needs a flagship]**
+
+Call the flagship tool's own API to confirm real state (needs OAuth). Add in Stage 6 when a flagship
+is chosen. Slot it in ahead of Tier 2 inside `verifyStep` (or a wrapper) — keep the
+`{ verified, reason }` shape.
+
+### Still to do for Stage 3
+
+- A per-step `expected` spec (URL pattern / required + forbidden elements) so verification is
+  "did the RIGHT thing happen", not just "did something change". Comes with mission templates (Stage 6).
+- Wire the "not verified" path into Recovery (Stage 5) instead of just re-issuing the step.
+- Calibrate / measure: on the first flagship tool, is it >~90% correct (catches wrong actions,
+  passes right ones)? **This is the GO/NO-GO gate.** If it can't hit ~90% on a tool with an API,
+  the "we verified you can do this" premise needs rethinking.
 
 ---
 

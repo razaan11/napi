@@ -179,8 +179,12 @@ watch it in `click` mode (default) or `value` mode (for `input_text`, with the e
 1. ~~`GUIDE_MODE` hardcoded~~ **DONE (commit `76b0630`)** — now a `guideMode` toggle in General
    Settings (default off). Read via `this.context.options.guideMode`. Reload the side panel after
    changing the toggle.
-2. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome
-   happened. The Navigator's result is synthetic. (Stage 3, the go/no-go gate.)
+2. **Checker: Tier 2 only** (commit `38e4a27`, `agent/checker.ts`). After `waitForUserStep` the guide
+   branch calls `verifyStep({ actionName, userActed, before, after })`: timeout / dead click -> not
+   verified (emit `STEP_FAIL`, feed "retry this step" into memory, bump `consecutiveFailures` on
+   timeout); navigation / value-match / page-signature change -> verified (emit `STEP_OK`). Still to
+   do: a per-step `expected` spec (so it's "right thing happened" not "something changed"), Tier 1
+   (tool API), Tier 3 (vision), Recovery wiring, and calibration on a real flagship — the go/no-go gate.
 3. **`go_to_url` is not guided** — it runs via fix A, so the extension navigates for the user
    instead of telling them to. Fine for now; refine later.
 4. **No generic DOM-change detection** — a control whose completion signal is neither a click on the
