@@ -208,16 +208,25 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         // Does this step target an element the USER can act on?
         const step = actions[0];
-        const actionName = step ? Object.keys(step)[0] : '';
+        const actionName = step && typeof step === 'object' ? Object.keys(step)[0] : '';
         const actionInstance = actionName ? this.actionRegistry.getAction(actionName) : undefined;
         const targetIndex =
           actionInstance && step ? actionInstance.getIndexArg(step[actionName] as Record<string, unknown>) : null;
         const isUserStep = targetIndex !== null && targetIndex !== undefined;
 
-        if (!isUserStep) {
+        if (!actionName) {
+          // The model returned no usable action (flaky output). Don't crash — ask it to re-plan.
+          logger.warning('🧭 GUIDE MODE — model returned no usable action; re-planning');
+          actionResults = [
+            new ActionResult({
+              extractedContent: 'No valid action was returned for this step. Re-plan and issue the next step.',
+              includeInMemory: true,
+            }),
+          ];
+        } else if (!isUserStep) {
           // No element for the user to act on (e.g. `done`, `wait`, agent navigation).
           // Run it normally so task completion still works, instead of hanging 2 minutes.
-          logger.info('🧭 GUIDE MODE — non-user action, running it normally:', actionName || '(none)');
+          logger.info('🧭 GUIDE MODE — non-user action, running it normally:', actionName);
           actionResults = await this.doMultiAction(actions);
         } else {
           logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
