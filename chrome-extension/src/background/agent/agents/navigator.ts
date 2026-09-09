@@ -29,6 +29,7 @@ import { HistoryTreeProcessor } from '@src/background/browser/dom/history/servic
 import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
 import { waitForGuideStepClick, watchGuideStepTarget, type GuideStepWatch } from '@src/background/guide-step';
+import { verifyStep } from '../checker';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -251,14 +252,43 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           // pause and wait for the USER to perform the step
           const userActed = await this.waitForUserStep(guideStepClick);
 
-          actionResults = [
-            new ActionResult({
-              extractedContent: userActed
-                ? `user completed the step: "${nextGoal}"`
-                : `timed out - user did not complete: "${nextGoal}"`,
-              includeInMemory: true,
-            }),
-          ];
+          // Stage 3 — verify the intended outcome actually happened
+          let afterState = null;
+          try {
+            afterState = await this.context.browserContext.getState(false);
+          } catch (e) {
+            logger.warning('🧭 CHECKER — could not read page after step', e);
+          }
+          const check = verifyStep({ actionName, userActed, before: currentState, after: afterState });
+
+          if (check.verified) {
+            logger.info('🧭 CHECKER — verified:', check.reason);
+            this.context.consecutiveFailures = 0;
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `✅ Done: ${nextGoal}`);
+            actionResults = [
+              new ActionResult({
+                extractedContent: `Step verified (${check.reason}): "${nextGoal}"`,
+                includeInMemory: true,
+              }),
+            ];
+          } else {
+            logger.warning('🧭 CHECKER — NOT verified:', check.reason);
+            if (!userActed) {
+              // consecutive timeouts eventually end the task via the failure limit
+              this.context.consecutiveFailures++;
+            }
+            this.context.emitEvent(
+              Actors.NAVIGATOR,
+              ExecutionState.STEP_FAIL,
+              `⚠️ That step doesn't look complete — ${check.reason}`,
+            );
+            actionResults = [
+              new ActionResult({
+                extractedContent: `Step NOT verified for "${nextGoal}": ${check.reason}. Ask the user to try this step again.`,
+                includeInMemory: true,
+              }),
+            ];
+          }
         }
       } else {
         actionResults = await this.doMultiAction(actions);
