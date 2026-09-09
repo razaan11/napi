@@ -335,10 +335,12 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
     agentOptions: {
       maxSteps: generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,
-      maxActionsPerStep: generalSettings.maxActionsPerStep,
+      // napi: in guide mode we show one instruction at a time, so cap actions per step to 1.
+      maxActionsPerStep: generalSettings.guideMode ? 1 : generalSettings.maxActionsPerStep,
       useVision: generalSettings.useVision,
       useVisionForPlanner: true,
       planningInterval: generalSettings.planningInterval,
+      guideMode: generalSettings.guideMode,
     },
     generalSettings: generalSettings,
   });

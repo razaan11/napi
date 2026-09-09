@@ -32,9 +32,6 @@ import { waitForGuideStepClick, watchGuideStepTarget, type GuideStepWatch } from
 
 const logger = createLogger('NavigatorAgent');
 
-// TEMP (napi Stage 1): hardcoded guide-mode switch. Moves to settings later.
-const GUIDE_MODE = true;
-
 interface ParsedModelOutput {
   current_state?: {
     next_goal?: string;
@@ -205,7 +202,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       this.addModelOutputToMemory(modelOutput);
 
       // take the actions
-      if (GUIDE_MODE) {
+      if (this.context.options.guideMode) {
         const nextGoal = modelOutput.current_state?.next_goal ?? '(no goal text)';
 
         // Does this step target an element the USER can act on?
