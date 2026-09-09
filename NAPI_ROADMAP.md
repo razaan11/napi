@@ -13,7 +13,7 @@ listed at the end and is NOT in scope yet.
 | Stage | What | Status |
 |---|---|---|
 | 0 | Setup + understand the codebase | DONE |
-| 1 | Guide mode: intercept action, show step, spotlight element | DONE except the `mode` toggle |
+| 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | NOT STARTED |
 | 4 | Skill Map | NOT STARTED |
@@ -57,22 +57,19 @@ listed at the end and is NOT in scope yet.
 
 ---
 
-## Stage 1 (finish) — make `mode` a real setting
+## Stage 1 (finish) — make `mode` a real setting  **[DONE — commit `76b0630`]**
 
-**Goal:** remove the hardcoded `const GUIDE_MODE = true`; support `auto` vs `guide`, user-selectable,
-no rebuild needed.
+Replaced the hardcoded `const GUIDE_MODE = true` with a real `guideMode: boolean` setting
+(default `false` = original Nanobrowser auto behaviour). Files:
+- `packages/storage/lib/settings/generalSettings.ts` — `guideMode` in `GeneralSettingsConfig` + defaults.
+- `chrome-extension/src/background/agent/types.ts` — `guideMode` in `AgentOptions` + `DEFAULT_AGENT_OPTIONS`.
+- `chrome-extension/src/background/index.ts` `setupExecutor()` — passes `guideMode` into `agentOptions`;
+  forces `maxActionsPerStep: 1` when guide mode is on.
+- `chrome-extension/src/background/agent/agents/navigator.ts` — `if (this.context.options.guideMode)`.
+- `pages/options/src/components/GeneralSettings.tsx` — a **Guide mode** toggle (plain strings, no i18n key).
 
-**Tasks:**
-- `packages/storage` general settings (`generalSettingsStore`): add `mode: 'auto' | 'guide'`
-  (default `'auto'`).
-- `pages/options`: add a toggle/select in the settings UI.
-- `chrome-extension/src/background/index.ts` -> `setupExecutor()`: read the setting; pass it into
-  `agentOptions`. When `mode === 'guide'`, also set `maxActionsPerStep: 1`.
-- `navigator.ts`: replace `const GUIDE_MODE = true` with
-  `const guideMode = this.context.options.mode === 'guide'` (and rename usages).
-
-**Done when:** toggling the setting switches between original Nanobrowser auto behaviour and guide
-behaviour.
+Verified: toggle OFF -> extension types/acts itself; toggle ON -> guides the user step by step.
+Reload the side panel after changing the toggle so it re-reads the setting.
 
 ---
 

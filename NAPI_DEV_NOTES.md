@@ -176,7 +176,9 @@ watch it in `click` mode (default) or `value` mode (for `input_text`, with the e
 
 ## 6. Known limitations / NOT done
 
-1. **`GUIDE_MODE` hardcoded `true`** — no auto-mode, no user toggle. **This is the next task.**
+1. ~~`GUIDE_MODE` hardcoded~~ **DONE (commit `76b0630`)** — now a `guideMode` toggle in General
+   Settings (default off). Read via `this.context.options.guideMode`. Reload the side panel after
+   changing the toggle.
 2. **No Checker** — nothing verifies the user did the *right* thing or that the real outcome
    happened. The Navigator's result is synthetic. (Stage 3, the go/no-go gate.)
 3. **`go_to_url` is not guided** — it runs via fix A, so the extension navigates for the user
