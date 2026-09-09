@@ -207,18 +207,28 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       // take the actions
       if (GUIDE_MODE) {
         const nextGoal = modelOutput.current_state?.next_goal ?? '(no goal text)';
-        logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
 
-        let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
+        // Does this step target an element the USER can act on?
+        const step = actions[0];
+        const actionName = step ? Object.keys(step)[0] : '';
+        const actionInstance = actionName ? this.actionRegistry.getAction(actionName) : undefined;
+        const targetIndex =
+          actionInstance && step ? actionInstance.getIndexArg(step[actionName] as Record<string, unknown>) : null;
+        const isUserStep = targetIndex !== null && targetIndex !== undefined;
 
-        // spotlight the target element on the page (only if this step targets one)
-        try {
-          const step = actions[0];
-          const actionName = Object.keys(step)[0];
-          const actionInstance = this.actionRegistry.getAction(actionName);
-          const targetIndex = actionInstance?.getIndexArg(step[actionName] as Record<string, unknown>);
-          if (targetIndex !== null && targetIndex !== undefined) {
+        if (!isUserStep) {
+          // No element for the user to act on (e.g. `done`, `wait`, agent navigation).
+          // Run it normally so task completion still works, instead of hanging 2 minutes.
+          logger.info('🧭 GUIDE MODE — non-user action, running it normally:', actionName || '(none)');
+          actionResults = await this.doMultiAction(actions);
+        } else {
+          logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
+
+          let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
+
+          // spotlight the target element on the page
+          try {
             const page = await this.context.browserContext.getCurrentPage();
             const guideStepId = crypto.randomUUID();
 
@@ -229,22 +239,22 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             await watchGuideStepTarget(page.tabId, guideStepId);
 
             logger.info('🧭 GUIDE MODE — spotlighting element index', targetIndex);
+          } catch (e) {
+            logger.warning('🧭 GUIDE MODE — could not spotlight target', e);
           }
-        } catch (e) {
-          logger.warning('🧭 GUIDE MODE — could not spotlight target', e);
+
+          // pause and wait for the USER to perform the step
+          const userActed = await this.waitForUserStep(guideStepClick);
+
+          actionResults = [
+            new ActionResult({
+              extractedContent: userActed
+                ? `user completed the step: "${nextGoal}"`
+                : `timed out - user did not complete: "${nextGoal}"`,
+              includeInMemory: true,
+            }),
+          ];
         }
-
-        // Stage 2: pause and wait for the USER to perform the step
-        const userActed = await this.waitForUserStep(guideStepClick);
-
-        actionResults = [
-          new ActionResult({
-            extractedContent: userActed
-              ? `user completed the step: "${nextGoal}"`
-              : `timed out - user did not complete: "${nextGoal}"`,
-            includeInMemory: true,
-          }),
-        ];
       } else {
         actionResults = await this.doMultiAction(actions);
       }
