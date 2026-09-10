@@ -11,6 +11,15 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 
 const maxTokens = 1024 * 4;
 
+// napi: cap how long a single model call can stall the guide loop.
+// LangChain defaults to ~6 retries with exponential backoff, so one transient
+// 503 / "high demand" response from a provider could hang a step for ~12
+// minutes. Capping retries and adding a per-request timeout means a bad model
+// call fails in a few seconds and the user gets a clear error instead of a
+// frozen screen. Applied to every provider below.
+const MODEL_MAX_RETRIES = 2;
+const MODEL_REQUEST_TIMEOUT_MS = 60_000;
+
 // Custom ChatLlama class to handle Llama API response format
 class ChatLlama extends ChatOpenAI {
   constructor(args: any) {
@@ -110,9 +119,13 @@ function createOpenAIChatModel(
     topP?: number;
     temperature?: number;
     maxTokens?: number;
+    maxRetries?: number;
+    timeout?: number;
   } = {
     model: modelConfig.modelName,
     apiKey: providerConfig.apiKey,
+    maxRetries: MODEL_MAX_RETRIES,
+    timeout: MODEL_REQUEST_TIMEOUT_MS,
   };
 
   const configuration: Record<string, unknown> = {};
@@ -219,6 +232,8 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     azureOpenAIApiDeploymentName: deploymentName,
     azureOpenAIApiKey: providerConfig.apiKey,
     azureOpenAIApiVersion: providerConfig.azureApiVersion,
+    maxRetries: MODEL_MAX_RETRIES,
+    timeout: MODEL_REQUEST_TIMEOUT_MS,
     // For Azure, the model name should be the deployment name itself
     model: deploymentName, // Set model = deployment name to fix Azure requests
     // For O series models, use modelKwargs instead of temperature/topP
@@ -267,7 +282,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         apiKey: providerConfig.apiKey,
         maxTokens,
         temperature,
-        clientOptions: {},
+        maxRetries: MODEL_MAX_RETRIES,
+        clientOptions: { timeout: MODEL_REQUEST_TIMEOUT_MS },
       };
       return new ChatAnthropic(args);
     }
@@ -277,6 +293,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        maxRetries: MODEL_MAX_RETRIES,
+        timeout: MODEL_REQUEST_TIMEOUT_MS,
       };
       return new ChatDeepSeek(args) as BaseChatModel;
     }
@@ -286,6 +304,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        maxRetries: MODEL_MAX_RETRIES,
       };
       return new ChatGoogleGenerativeAI(args);
     }
@@ -296,6 +315,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature,
         topP,
         maxTokens,
+        maxRetries: MODEL_MAX_RETRIES,
+        timeout: MODEL_REQUEST_TIMEOUT_MS,
         configuration: {},
       };
       return new ChatXAI(args) as BaseChatModel;
@@ -307,6 +328,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature,
         topP,
         maxTokens,
+        maxRetries: MODEL_MAX_RETRIES,
+        timeout: MODEL_REQUEST_TIMEOUT_MS,
       };
       return new ChatGroq(args);
     }
@@ -317,6 +340,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature,
         topP,
         maxTokens,
+        maxRetries: MODEL_MAX_RETRIES,
+        timeout: MODEL_REQUEST_TIMEOUT_MS,
       };
       return new ChatCerebras(args);
     }
@@ -329,6 +354,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         topP?: number;
         temperature?: number;
         maxTokens?: number;
+        maxRetries?: number;
         numCtx: number;
       } = {
         model: modelConfig.modelName,
@@ -338,6 +364,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         topP,
         temperature,
         maxTokens,
+        maxRetries: MODEL_MAX_RETRIES,
         // ollama usually has a very small context window, so we need to set a large number for agent to work
         // It was set to 128000 in the original code, but it will cause ollama reload the models frequently if you have multiple models working together
         // not sure why, but setting it to 64000 seems to work fine
@@ -365,12 +392,16 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         topP?: number;
         temperature?: number;
         maxTokens?: number;
+        maxRetries?: number;
+        timeout?: number;
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
+        maxRetries: MODEL_MAX_RETRIES,
+        timeout: MODEL_REQUEST_TIMEOUT_MS,
       };
 
       const configuration: Record<string, unknown> = {};

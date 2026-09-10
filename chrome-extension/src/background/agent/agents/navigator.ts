@@ -261,12 +261,36 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           // pause and wait for the USER to perform the step
           const userActed = await this.waitForUserStep(guideStepClick);
 
-          // Stage 3 — verify the intended outcome actually happened
-          let afterState = null;
-          try {
-            afterState = await this.context.browserContext.getState(false);
-          } catch (e) {
-            logger.warning('🧭 CHECKER — could not read page after step', e);
+          // Stage 3 — verify the intended outcome actually happened.
+          // Reading the full page state rebuilds the DOM tree, which is slow on
+          // big apps. Skip it whenever the verdict doesn't need it:
+          //   - the user never acted      -> not verified, no state needed
+          //   - an input_text value match -> already verified by the watcher
+          //   - the URL changed           -> verified by navigation (cheap tab read)
+          // Only a click that did NOT navigate needs the structural comparison.
+          type AfterState = Parameters<typeof verifyStep>[0]['after'];
+          let afterState: AfterState = null;
+          if (userActed && actionName !== 'input_text') {
+            const beforeUrl = currentState?.url ?? '';
+            let newUrl = '';
+            try {
+              const page = await this.context.browserContext.getCurrentPage();
+              const nowTab = await chrome.tabs.get(page.tabId);
+              newUrl = nowTab.url ?? '';
+            } catch (e) {
+              logger.warning('🧭 CHECKER — could not read tab URL after step', e);
+            }
+
+            if (newUrl && newUrl !== beforeUrl) {
+              // Navigation happened — enough to verify, no DOM rebuild needed.
+              afterState = { url: newUrl };
+            } else {
+              try {
+                afterState = await this.context.browserContext.getState(false);
+              } catch (e) {
+                logger.warning('🧭 CHECKER — could not read page after step', e);
+              }
+            }
           }
           const check = verifyStep({ actionName, userActed, before: currentState, after: afterState });
 

@@ -16,6 +16,7 @@ listed at the end and is NOT in scope yet.
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`); Tiers 1 + 3, per-step `expected` spec, and calibration still to do |
+| Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE — see below. Model-fallback chain still deferred to Stage 7 |
 | 4 | Skill Map | NOT STARTED |
 | 5 | Recovery | NOT STARTED |
 | 6 | Missions for one flagship tool | NOT STARTED |
@@ -117,6 +118,31 @@ is chosen. Slot it in ahead of Tier 2 inside `verifyStep` (or a wrapper) — kee
 
 ---
 
+## Performance — big-page pass  **[DONE]**
+
+Guided steps were taking 10+ minutes on large web apps. Diagnosed as the model
+layer, not DOM scanning (browser config is already viewport-only).
+
+Done + committed:
+- **Model retry cap** — `helper.ts`: `MODEL_MAX_RETRIES = 2` +
+  `MODEL_REQUEST_TIMEOUT_MS = 60_000` on every provider. Kills the ~12-minute
+  silent-retry hang on a transient provider `503`.
+- **Fewer Planner calls in guide mode** — `setupExecutor()`:
+  `planningInterval = guideMode ? 999 : <user setting>`. Planner still runs at
+  the start and on `done`, not every 3 steps. Halves LLM round-trips per step.
+- **Lighter Checker read** — `navigator.ts`: skip the full `getState()` DOM
+  rebuild when the verdict doesn't need it (timeout, `input_text` match, or a
+  URL change detected via `chrome.tabs.get`).
+
+Still to do (moved to Stage 7):
+- Measure real per-step latency on a heavy app (Notion / Gmail) and set a
+  budget.
+- **Model-fallback chain**: on failure, retry the step with a second configured
+  model instead of failing the task. Must-have before ship given free-tier
+  flakiness.
+
+---
+
 ## Stage 4 — the Skill Map
 
 **Goal:** persist what the user can actually do, per tool.
@@ -191,7 +217,9 @@ is known.
 ## Stage 7 — polish + first users
 
 - Onboarding: paste a model key (or bundle a limited one), pick a goal.
-- Graceful model-error handling, retries, clear messages, no dead ends.
+- Graceful model-error handling, retries, clear messages, no dead ends. Retry cap
+  is already in (`helper.ts`); still needed: a **model-fallback chain** (try the
+  next configured model on failure) and per-step latency budgets on a heavy app.
 - Package the extension; write a one-page install guide.
 - Give it to 5-10 beginners; watch them use it; log every place it breaks or confuses.
 

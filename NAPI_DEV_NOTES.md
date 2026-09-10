@@ -165,6 +165,44 @@ in-page "Click Me" button advanced the guide with no URL change. Console:
   both `guide_target_clicked` and `guide_target_matched` via `notifyGuideStepClick`.
   Verified on google.com: "Type \"hello world\" in the search box" advances when the value matches.
 
+### Big-page performance pass  **[DONE, committed]**
+
+Symptom the user hit: on a large web app, a guided step could sit "thinking" for
+10+ minutes. Root cause was **not** DOM scanning (the browser config is already
+viewport-only, `viewportExpansion: 0`, short page-load waits). It was the model
+layer:
+
+- **No retry cap.** LangChain chat models default to ~6 retries with exponential
+  backoff. One transient `503 / "high demand"` from a free provider (Gemini,
+  Kira) turned into ~12 minutes of silent retrying before the task failed.
+- **Planner ran every 3 steps.** In guide mode the user performs each step, so
+  the plan never really changes — but the Executor still fired a second slow,
+  vision-enabled LLM call every few steps, doubling latency and the 503 surface.
+
+Fixes:
+
+1. `chrome-extension/src/background/agent/helper.ts` — added
+   `MODEL_MAX_RETRIES = 2` and `MODEL_REQUEST_TIMEOUT_MS = 60_000`, applied to
+   **every** provider (`createOpenAIChatModel` + OpenRouter/custom, Azure,
+   Anthropic, DeepSeek, Gemini, Grok, Groq, Cerebras, Ollama, Llama). Gemini and
+   Ollama only take `maxRetries` (their LangChain wrappers have no `timeout`
+   arg). A bad model call now fails in seconds with a clear error instead of
+   freezing the panel.
+2. `chrome-extension/src/background/index.ts` `setupExecutor()` —
+   `planningInterval: generalSettings.guideMode ? 999 : generalSettings.planningInterval`.
+   With `nSteps` starting at 0 the Planner still runs once at the start (builds
+   the plan) and again whenever the Navigator reports `done` (validates
+   completion), just not on every step. Auto mode is untouched.
+3. `chrome-extension/src/background/agent/agents/navigator.ts` — the Stage 3
+   Checker no longer always calls `getState(false)` (a full DOM-tree rebuild).
+   It now skips that read when the verdict doesn't need it: user timed out, an
+   `input_text` value match, or the URL changed (checked with a cheap
+   `chrome.tabs.get`). Only a click that did **not** navigate still pays for the
+   structural fingerprint.
+
+Not done here: measuring real per-step latency on a heavy app, and a proper
+model-fallback chain (try model A, fall back to B on failure) — that's Stage 7.
+
 ## 5. Current behaviour (guide mode is always on)
 
 Per Navigator step: LLM decides -> guide branch runs. If the action has no target element index
@@ -219,7 +257,9 @@ watch it in `click` mode (default) or `value` mode (for `input_text`, with the e
   reload the test page**. Watch the "service worker" console for `GUIDE MODE` logs.
 - **Keep the side panel open** while testing a guided task.
 - **Do not delete `LICENSE`** (Apache-2.0 — required for building on Nanobrowser).
-- **Model:** `hy3` on the Kira provider.
+- **Model:** `hy3` on the Kira provider. (Free providers 503 often — the retry
+  cap in `helper.ts` keeps that from hanging the loop. A real fallback chain is
+  still Stage 7.)
 - **`this.context.options`** holds `maxSteps`, `maxFailures`, `maxActionsPerStep`, `useVision`,
   `planningInterval` — thread a `mode` field through from `setupExecutor` here.
 - The Executor loop and Planner are **unchanged** — don't modify `executor.ts` / `planner.ts` unless

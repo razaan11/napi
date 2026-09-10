@@ -339,7 +339,13 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       maxActionsPerStep: generalSettings.guideMode ? 1 : generalSettings.maxActionsPerStep,
       useVision: generalSettings.useVision,
       useVisionForPlanner: true,
-      planningInterval: generalSettings.planningInterval,
+      // napi: in guide mode the user performs each step, so the plan is
+      // effectively static. Re-running the Planner every few steps just adds a
+      // second slow LLM round-trip per step (and a second chance to hit a
+      // provider 503). A large interval means the Planner still runs once at
+      // the start to build the plan and again to validate the final `done`,
+      // but not on every step. Normal (auto) mode keeps the user's setting.
+      planningInterval: generalSettings.guideMode ? 999 : generalSettings.planningInterval,
       guideMode: generalSettings.guideMode,
     },
     generalSettings: generalSettings,
