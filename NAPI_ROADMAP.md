@@ -15,8 +15,8 @@ listed at the end and is NOT in scope yet.
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
-| 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`); Tiers 1 + 3, per-step `expected` spec, and calibration still to do |
-| Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE — see below. Model-fallback chain still deferred to Stage 7 |
+| 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`) and **verified live** on example.com (Sep 11): click → URL change → `verified: the page navigated as expected`. Tiers 1 + 3, per-step `expected` spec, and calibration on a real flagship still to do |
+| Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below. Model-fallback chain still deferred to Stage 7 |
 | 4 | Skill Map | NOT STARTED |
 | 5 | Recovery | NOT STARTED |
 | 6 | Missions for one flagship tool | NOT STARTED |
@@ -134,12 +134,25 @@ Done + committed:
   rebuild when the verdict doesn't need it (timeout, `input_text` match, or a
   URL change detected via `chrome.tabs.get`).
 
+**Verified live (Sep 11)** — full run on `example.com`, task "open learnmore link":
+Navigator spotlighted the link -> user clicked it -> URL changed ->
+`🧭 CHECKER — verified: the page navigated as expected` fired off the cheap
+`chrome.tabs.get` path (no full DOM rebuild) -> next step was a no-target
+`done` action, ran normally via fix A instead of guide-waiting -> Planner ran
+once more (triggered by `navigatorDone`, not the interval) and confirmed
+completion. All three perf changes and the guide loop's happy path now
+confirmed end to end, not just in isolation.
+
 Still to do (moved to Stage 7):
 - Measure real per-step latency on a heavy app (Notion / Gmail) and set a
   budget.
 - **Model-fallback chain**: on failure, retry the step with a second configured
   model instead of failing the task. Must-have before ship given free-tier
-  flakiness.
+  flakiness. (This was also the practical blocker to running this test at all —
+  every free provider hit its daily limit or went down mid-testing.)
+- Still untested: the Checker's "not verified" path (a click that produces no
+  detectable change) and the `input_text` value-match path under the new
+  lighter-read logic.
 
 ---
 
