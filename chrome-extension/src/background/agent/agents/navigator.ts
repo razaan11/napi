@@ -117,6 +117,12 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
+    // napi: wrap the actual call so a failure can fall through to the next
+    // configured fallback model instead of failing the whole task.
+    return this.withModelFallback(() => this.invokeNavigatorOnce(inputMessages));
+  }
+
+  private async invokeNavigatorOnce(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
     // Use structured output
     if (this.withStructuredOutput) {
       const structuredLlm = this.chatLLM.withStructuredOutput(this.jsonSchema, {
@@ -177,8 +183,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       throw new ResponseParseError('Could not parse navigator response');
     }
 
-    // Fallback to parent class manual JSON extraction for models without structured output support
-    return super.invoke(inputMessages);
+    // Fallback to the base class's manual JSON extraction for models without
+    // structured output support (calling the extraction method directly, not
+    // super.invoke(), which would wrap this in a second fallback loop).
+    return this.invokeManualExtraction(inputMessages);
   }
 
   async execute(): Promise<AgentOutput<NavigatorResult>> {

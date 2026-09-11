@@ -25,12 +25,16 @@ import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
 import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
+import type { FallbackModel } from './agents/base';
 
 const logger = createLogger('Executor');
 
 export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
   extractorLLM?: BaseChatModel;
+  // napi: ordered fallback models per agent, tried in order if the primary fails.
+  navigatorFallbackLLMs?: FallbackModel[];
+  plannerFallbackLLMs?: FallbackModel[];
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
 }
@@ -76,12 +80,14 @@ export class Executor {
       chatLLM: navigatorLLM,
       context: context,
       prompt: this.navigatorPrompt,
+      fallbackModels: extraArgs?.navigatorFallbackLLMs,
     });
 
     this.planner = new PlannerAgent({
       chatLLM: plannerLLM,
       context: context,
       prompt: this.plannerPrompt,
+      fallbackModels: extraArgs?.plannerFallbackLLMs,
     });
 
     this.context = context;

@@ -16,8 +16,9 @@ listed at the end and is NOT in scope yet.
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`) and **verified live** on example.com (Sep 11): click → URL change → `verified: the page navigated as expected`. Tiers 1 + 3, per-step `expected` spec, and calibration on a real flagship still to do |
-| Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below. Model-fallback chain still deferred to Stage 7 |
+| Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below |
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
+| Perf | Model-fallback chain (pulled forward from Stage 7) | DONE (v1) — see below |
 | 5 | Recovery | NOT STARTED |
 | 6 | Missions for one flagship tool | NOT STARTED |
 | UI | Side panel redesign | NOT STARTED |
@@ -158,13 +159,12 @@ Next once"), not an open-ended one, so the loop has a natural stop.
 Still to do (moved to Stage 7):
 - Measure real per-step latency on a heavy app (Notion / Gmail) and set a
   budget.
-- **Model-fallback chain**: on failure, retry the step with a second configured
-  model instead of failing the task. Must-have before ship given free-tier
-  flakiness. (This was also the practical blocker to running this test at all —
-  every free provider hit its daily limit or went down mid-testing.)
 - Still untested: the Checker's "not verified" path (a click that produces no
   detectable change) and the `input_text` value-match path under the new
   lighter-read logic.
+
+(The model-fallback chain that was going to be listed here got pulled forward and built — see the
+**Model-fallback chain** section below, right after Stage 4.)
 
 ---
 
@@ -196,6 +196,57 @@ Done + committed:
 
 **Still to do:** once Stage 6 missions exist, call `recordUnaidedSuccess` from the mission's end-of-mission
 challenge; better `skillId`s from mission templates instead of the slug heuristic; a side-panel view.
+
+---
+
+## Model-fallback chain  **[v1 DONE — pulled forward from Stage 7]**
+
+**Goal:** a failing/rate-limited model fails the *call*, not the whole task — retry with the next
+configured model instead. This was originally scheduled for Stage 7, but free-tier flakiness (Gemini's
+20/day quota, Kira models going into maintenance, Groq/Cerebras limits) blocked testing repeatedly during
+the perf-fix session, so it was pulled forward. Chose the simple design: **a fixed, user-ordered list per
+agent**, tried in order — not automatic "skip providers rate-limited today" bookkeeping (that's a
+reasonable v2 if the fixed list turns out not to be enough).
+
+Done + committed:
+- **Storage** — `packages/storage/lib/settings/agentModels.ts`: `AgentModelRecord.fallbacks?:
+  Partial<Record<AgentNameEnum, ModelConfig[]>>`, plus `setAgentFallbacks` / `getAgentFallbacks`. Fixed a
+  real bug while adding this: `setAgentModel`, `resetAgentModel`, and `cleanupLegacyValidatorSettings` were
+  all replacing the WHOLE stored record instead of spreading `...current` — which would have silently
+  wiped every fallback list on the very next primary-model save (and `cleanupLegacyValidatorSettings` runs
+  on *every* task start). Fixed all three before it ever shipped.
+- **Retry mechanics** — `chrome-extension/src/background/agent/agents/base.ts`: new `FallbackModel { chatLLM,
+  provider }` type, a `fallbackModels` queue on `BaseAgent`, and `protected withModelFallback(attempt)`
+  which runs `attempt()`, and on a non-abort failure `shift()`s the next fallback off the queue, switches
+  every field that was derived from the old model at construction time (`chatLLM`, `provider`,
+  `chatModelLibrary`, `modelName`, `withStructuredOutput`, `toolCallingMethod`), and retries. A successful
+  switch is **sticky** — the agent keeps using that model for the rest of the task; it never re-tries a
+  model that already failed. `BaseAgent.invoke()` now wraps its body (renamed `invokeOnce`) in
+  `withModelFallback`.
+- **NavigatorAgent has its own `invoke()` override** (a near-duplicate of `BaseAgent`'s, for its own JSON
+  schema) — it does NOT go through `BaseAgent.invoke()`. Same treatment: renamed to `invokeNavigatorOnce`,
+  wrapped in `withModelFallback`. Its non-structured-output branch now calls the base class's
+  `invokeManualExtraction()` directly (pulled out of `BaseAgent.invoke()` into its own protected method)
+  instead of `super.invoke()` — calling `super.invoke()` there would have wrapped the call in a *second*,
+  redundant fallback loop sharing the same queue.
+- **Wiring** — `background/index.ts` `setupExecutor()` builds each agent's fallback `BaseChatModel`s from
+  its stored `ModelConfig[]` (`buildFallbackModels`, skips — with a warning, not a crash — any fallback
+  whose provider was removed or fails to construct) and passes them through `Executor` to `NavigatorAgent` /
+  `PlannerAgent` as `fallbackModels`.
+- **Visibility** — when a switch happens, the agent emits a system event: `⚠️ <old model> was unavailable —
+  switched to <new model>` — shows up in the side panel like any other step message, so the user isn't
+  left wondering why the flow suddenly feels different.
+- **Options UI** — new **Fallback** tab (`pages/options/src/components/FallbackModels.tsx`), separate from
+  the large existing `ModelSettings.tsx` (deliberately not touched — 1700+ lines, out of scope for this
+  change). Per agent with a primary model set: shows the primary, an ordered list of fallbacks with
+  up/down/remove, and an add row (provider dropdown + a model dropdown sourced from that provider's already
+  -added model names, or a text field if it has none). Saves immediately on every change, same pattern as
+  `GeneralSettings.tsx`.
+
+**Still to do (real v2, not urgent):** the "skip providers already rate-limited today" refinement the user
+considered and deferred; surfacing fallback status in the Skill Map or side panel beyond the one-line
+system message; testing the actual multi-provider switch live (needs at least two working providers at
+once, which is exactly the thing that's been hard to get this session).
 
 ---
 
@@ -255,9 +306,10 @@ is known.
 ## Stage 7 — polish + first users
 
 - Onboarding: paste a model key (or bundle a limited one), pick a goal.
-- Graceful model-error handling, retries, clear messages, no dead ends. Retry cap
-  is already in (`helper.ts`); still needed: a **model-fallback chain** (try the
-  next configured model on failure) and per-step latency budgets on a heavy app.
+- Graceful model-error handling, clear messages, no dead ends. Retry cap
+  (`helper.ts`) and the model-fallback chain are both done (see above); still
+  needed: per-step latency budgets on a heavy app, and deciding whether v2's
+  "skip providers already rate-limited today" refinement is worth it.
 - Package the extension; write a one-page install guide.
 - Give it to 5-10 beginners; watch them use it; log every place it breaks or confuses.
 

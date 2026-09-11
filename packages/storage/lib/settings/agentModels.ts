@@ -15,6 +15,9 @@ export interface ModelConfig {
 // Interface for storing multiple agent model configurations
 export interface AgentModelRecord {
   agents: Record<AgentNameEnum, ModelConfig>;
+  // napi: ordered list of fallback models per agent, tried in order when the
+  // primary model's call fails (rate limit, 503, timeout, ...).
+  fallbacks?: Partial<Record<AgentNameEnum, ModelConfig[]>>;
 }
 
 export type AgentModelStorage = BaseStorage<AgentModelRecord> & {
@@ -25,11 +28,14 @@ export type AgentModelStorage = BaseStorage<AgentModelRecord> & {
   getConfiguredAgents: () => Promise<AgentNameEnum[]>;
   getAllAgentModels: () => Promise<Record<AgentNameEnum, ModelConfig>>;
   cleanupLegacyValidatorSettings: () => Promise<void>;
+  // napi: fallback chain per agent
+  setAgentFallbacks: (agent: AgentNameEnum, configs: ModelConfig[]) => Promise<void>;
+  getAgentFallbacks: (agent: AgentNameEnum) => Promise<ModelConfig[]>;
 };
 
 const storage = createStorage<AgentModelRecord>(
   'agent-models',
-  { agents: {} as Record<AgentNameEnum, ModelConfig> },
+  { agents: {} as Record<AgentNameEnum, ModelConfig>, fallbacks: {} },
   {
     storageEnum: StorageEnum.Local,
     liveUpdate: true,
@@ -61,6 +67,7 @@ export const agentModelStore: AgentModelStorage = {
       },
     };
     await storage.set(current => ({
+      ...current,
       agents: {
         ...current.agents,
         [agent]: mergedConfig,
@@ -86,7 +93,7 @@ export const agentModelStore: AgentModelStorage = {
     await storage.set(current => {
       const newAgents = { ...current.agents };
       delete newAgents[agent];
-      return { agents: newAgents };
+      return { ...current, agents: newAgents };
     });
   },
   hasAgentModel: async (agent: AgentNameEnum) => {
@@ -115,7 +122,28 @@ export const agentModelStore: AgentModelStorage = {
     await storage.set(current => {
       const newAgents = { ...current.agents };
       delete newAgents['validator' as keyof typeof newAgents];
-      return { agents: newAgents };
+      return { ...current, agents: newAgents };
     });
+  },
+  setAgentFallbacks: async (agent: AgentNameEnum, configs: ModelConfig[]) => {
+    configs.forEach(validateModelConfig);
+    const mergedConfigs = configs.map(config => ({
+      ...config,
+      parameters: {
+        ...getModelParameters(agent, config.provider),
+        ...config.parameters,
+      },
+    }));
+    await storage.set(current => ({
+      ...current,
+      fallbacks: {
+        ...(current.fallbacks ?? {}),
+        [agent]: mergedConfigs,
+      },
+    }));
+  },
+  getAgentFallbacks: async (agent: AgentNameEnum) => {
+    const data = await storage.get();
+    return data.fallbacks?.[agent] ?? [];
   },
 };

@@ -7,6 +7,8 @@ import {
   llmProviderStore,
   analyticsSettingsStore,
   skillMapStore,
+  type ModelConfig,
+  type ProviderConfig,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
@@ -15,6 +17,7 @@ import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { FallbackModel } from './agent/agents/base';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
@@ -284,6 +287,27 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 
+// napi: build ready-to-use fallback chat models for one agent from its
+// configured fallback ModelConfigs. Skips (with a warning) any fallback whose
+// provider was removed or fails to construct — a bad fallback should never
+// stop a task from starting.
+function buildFallbackModels(configs: ModelConfig[], providers: Record<string, ProviderConfig>): FallbackModel[] {
+  const models: FallbackModel[] = [];
+  for (const config of configs) {
+    const providerConfig = providers[config.provider];
+    if (!providerConfig) {
+      logger.warning(`Skipping fallback model for unknown/removed provider "${config.provider}"`);
+      continue;
+    }
+    try {
+      models.push({ chatLLM: createChatModel(providerConfig, config), provider: config.provider });
+    } catch (error) {
+      logger.warning(`Could not build fallback model ${config.provider}/${config.modelName}`, error);
+    }
+  }
+  return models;
+}
+
 async function setupExecutor(taskId: string, task: string, browserContext: BrowserContext) {
   const providers = await llmProviderStore.getAllProviders();
   // if no providers, need to display the options page
@@ -310,12 +334,21 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   const navigatorProviderConfig = providers[navigatorModel.provider];
   const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel);
 
+  // napi: model-fallback chain — configured in Options, tried in order if the
+  // primary model's call fails. Built here (not in the agent) because only
+  // this scope has the provider configs needed to construct a chat model.
+  const navigatorFallbackConfigs = await agentModelStore.getAgentFallbacks(AgentNameEnum.Navigator);
+  const navigatorFallbackLLMs = buildFallbackModels(navigatorFallbackConfigs, providers);
+
   let plannerLLM: BaseChatModel | null = null;
+  let plannerFallbackLLMs: FallbackModel[] = [];
   const plannerModel = agentModels[AgentNameEnum.Planner];
   if (plannerModel) {
     // Log the provider config being used for the planner
     const plannerProviderConfig = providers[plannerModel.provider];
     plannerLLM = createChatModel(plannerProviderConfig, plannerModel);
+    const plannerFallbackConfigs = await agentModelStore.getAgentFallbacks(AgentNameEnum.Planner);
+    plannerFallbackLLMs = buildFallbackModels(plannerFallbackConfigs, providers);
   }
 
   // Apply firewall settings to browser context
@@ -340,6 +373,8 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
 
   const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
     plannerLLM: plannerLLM ?? navigatorLLM,
+    navigatorFallbackLLMs,
+    plannerFallbackLLMs,
     agentOptions: {
       maxSteps: generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,

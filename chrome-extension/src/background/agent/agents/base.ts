@@ -8,11 +8,21 @@ import type { Action } from '../actions/builder';
 import { convertInputMessages, extractJsonFromModelOutput, removeThinkTags } from '../messages/utils';
 import { isAbortedError, ResponseParseError } from './errors';
 import { ProviderTypeEnum } from '@extension/storage';
+import { Actors, ExecutionState } from '../event/types';
 
 const logger = createLogger('agent');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
+
+// napi: a ready-to-use alternate model an agent can switch to if its primary
+// model call fails. Built by the caller (setupExecutor) since building a
+// BaseChatModel needs the provider's config (API key, base URL, ...), which
+// agents themselves don't have access to.
+export interface FallbackModel {
+  chatLLM: BaseChatModel;
+  provider: string;
+}
 
 // Update options to use Zod schema
 export interface BaseAgentOptions {
@@ -20,6 +30,8 @@ export interface BaseAgentOptions {
   context: AgentContext;
   prompt: BasePrompt;
   provider?: string;
+  // napi: ordered list of models to try, in order, if chatLLM's call fails.
+  fallbackModels?: FallbackModel[];
 }
 export interface ExtraAgentOptions {
   id?: string;
@@ -46,6 +58,11 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   protected withStructuredOutput: boolean;
   protected callOptions?: CallOptions;
   protected modelOutputToolName: string;
+  // napi: remaining fallback models for this agent instance. Consumed
+  // (shift()ed off) as they're tried, so a task never re-tries a model that
+  // already failed, and a successful switch is sticky for the rest of the run.
+  protected fallbackModels: FallbackModel[];
+  private readonly toolCallingMethodOption?: string;
   declare ModelOutput: z.infer<T>;
 
   constructor(modelOutputSchema: T, options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
@@ -55,29 +72,79 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     this.prompt = options.prompt;
     this.context = options.context;
     this.provider = options.provider || '';
+    this.fallbackModels = options.fallbackModels ? [...options.fallbackModels] : [];
     // TODO: fix this, the name is not correct in production environment
     this.chatModelLibrary = this.chatLLM.constructor.name;
     this.modelName = this.getModelName();
     this.withStructuredOutput = this.setWithStructuredOutput();
     // extra options
     this.id = extraOptions?.id || 'agent';
-    this.toolCallingMethod = this.setToolCallingMethod(extraOptions?.toolCallingMethod);
+    this.toolCallingMethodOption = extraOptions?.toolCallingMethod;
+    this.toolCallingMethod = this.setToolCallingMethod(this.toolCallingMethodOption);
     this.callOptions = extraOptions?.callOptions;
     this.modelOutputToolName = `${this.id}_output`;
   }
 
   // Set the model name
-  private getModelName(): string {
-    if ('modelName' in this.chatLLM) {
-      return this.chatLLM.modelName as string;
+  private getModelName(model: BaseChatModel = this.chatLLM): string {
+    if ('modelName' in model) {
+      return model.modelName as string;
     }
-    if ('model_name' in this.chatLLM) {
-      return this.chatLLM.model_name as string;
+    if ('model_name' in model) {
+      return model.model_name as string;
     }
-    if ('model' in this.chatLLM) {
-      return this.chatLLM.model as string;
+    if ('model' in model) {
+      return model.model as string;
     }
     return 'Unknown';
+  }
+
+  // napi: switch this agent to a fallback model, recomputing every field that
+  // was derived from the old chatLLM at construction time.
+  private switchToFallback(fallback: FallbackModel): void {
+    this.chatLLM = fallback.chatLLM;
+    this.provider = fallback.provider;
+    this.chatModelLibrary = this.chatLLM.constructor.name;
+    this.modelName = this.getModelName(this.chatLLM);
+    this.withStructuredOutput = this.setWithStructuredOutput();
+    this.toolCallingMethod = this.setToolCallingMethod(this.toolCallingMethodOption);
+  }
+
+  // napi: run `attempt` with the current model; on a non-abort failure, try
+  // each remaining fallback model in order until one succeeds or the list is
+  // exhausted. A successful switch stays in effect for the rest of this
+  // agent's life (this task run) — later calls don't re-try the dead model.
+  protected async withModelFallback<R>(attempt: () => Promise<R>): Promise<R> {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (isAbortedError(error) || this.fallbackModels.length === 0) {
+        throw error;
+      }
+
+      let lastError = error;
+      while (this.fallbackModels.length > 0) {
+        const next = this.fallbackModels.shift();
+        if (!next) break;
+        const previousModelName = this.modelName;
+        this.switchToFallback(next);
+        try {
+          const result = await attempt();
+          this.context.emitEvent(
+            Actors.SYSTEM,
+            ExecutionState.STEP_OK,
+            `⚠️ ${previousModelName} was unavailable — switched to ${this.modelName}`,
+          );
+          logger.info(`🔀 FALLBACK — ${previousModelName} failed, switched to ${this.modelName} and it worked`);
+          return result;
+        } catch (fallbackError) {
+          if (isAbortedError(fallbackError)) throw fallbackError;
+          lastError = fallbackError;
+          logger.warning(`🔀 FALLBACK — ${this.modelName} also failed`, fallbackError);
+        }
+      }
+      throw lastError;
+    }
   }
 
   // Set the tool calling method
@@ -119,6 +186,12 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
+    // napi: wrap the actual call so a failure can fall through to the next
+    // configured model instead of failing the whole task.
+    return this.withModelFallback(() => this.invokeOnce(inputMessages));
+  }
+
+  private async invokeOnce(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
     // Use structured output
     if (this.withStructuredOutput) {
       logger.debug(`[${this.modelName}] Preparing structured output call with schema:`, {
@@ -175,6 +248,15 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     }
 
     // Fallback: Without structured output support, need to extract JSON from model output manually
+    return this.invokeManualExtraction(inputMessages);
+  }
+
+  // napi: manual JSON-extraction path for models without structured output
+  // support (Llama, deepseek-reasoner, ...). Pulled out of invokeOnce so
+  // NavigatorAgent's own invoke override can call it directly instead of
+  // going through BaseAgent.invoke() (which would wrap it in a second,
+  // redundant fallback loop).
+  protected async invokeManualExtraction(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
     logger.debug(`[${this.modelName}] Using manual JSON extraction fallback method`);
     const convertedInputMessages = convertInputMessages(inputMessages, this.modelName);
 

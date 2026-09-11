@@ -229,6 +229,70 @@ fired correctly across 4 consecutive navigations with very different DOM sizes
 - `recordUnaidedSuccess` exists in the store but nothing calls it yet — no
   skill will ever reach `unaided` until Stage 6 adds an end-of-mission
   no-hints challenge that calls it.
+- A Skill Map row for `www.iana.org` from before a small attribution fix is
+  cosmetic leftover in dev storage, harmless, safe to ignore or clear via
+  `skillMapStore.resetAll()`.
+
+### Model-fallback chain (v1)  **[DONE, committed]**
+
+Pulled forward from Stage 7 — free-tier flakiness kept blocking testing, so
+this became the practical priority. Design: **fixed, user-ordered list per
+agent**, tried in order on failure (not "skip already-rate-limited providers
+today" — that's a possible v2).
+
+- `packages/storage/lib/settings/agentModels.ts` — `AgentModelRecord.fallbacks?:
+  Partial<Record<AgentNameEnum, ModelConfig[]>>` + `setAgentFallbacks` /
+  `getAgentFallbacks`. **Caught and fixed a real bug in existing code** while
+  adding this: `setAgentModel`, `resetAgentModel`, and
+  `cleanupLegacyValidatorSettings` all replaced the *whole* stored record
+  instead of spreading `...current` — which would have silently wiped every
+  fallback list on the next primary-model save, and
+  `cleanupLegacyValidatorSettings` runs on **every** task start. Fixed all
+  three (`return { ...current, agents: newAgents }` instead of
+  `return { agents: newAgents }`).
+- `chrome-extension/src/background/agent/agents/base.ts` — new `FallbackModel
+  { chatLLM, provider }` type; `BaseAgent` gets a `fallbackModels` queue and a
+  `protected withModelFallback(attempt)` that runs `attempt()`, and on a
+  non-abort failure `shift()`s the next fallback off the queue, recomputes
+  every field that was derived from the model at construction time
+  (`chatLLM`, `provider`, `chatModelLibrary`, `modelName`,
+  `withStructuredOutput`, `toolCallingMethod` — see `switchToFallback`), and
+  retries. A successful switch is **sticky**: the agent keeps using it for the
+  rest of the task, never re-tries a model that already failed.
+  `BaseAgent.invoke()` now wraps its old body (renamed `invokeOnce`) in
+  `withModelFallback`; the manual-JSON-extraction path was pulled out into its
+  own `protected invokeManualExtraction()`.
+- **Important gotcha found while building this:** `NavigatorAgent` has its
+  OWN `invoke()` override (a near-duplicate of `BaseAgent`'s, for its own JSON
+  schema) — it does **not** go through `BaseAgent.invoke()` at all for the
+  structured-output path, which is what almost every model uses. Fallback
+  support had to be added there too: renamed to `invokeNavigatorOnce`, wrapped
+  in the same `withModelFallback`. Its non-structured-output branch now calls
+  `this.invokeManualExtraction()` directly instead of `super.invoke()` —
+  calling `super.invoke()` there would have wrapped the call in a *second*,
+  redundant fallback loop sharing the same queue.
+- `background/index.ts` `setupExecutor()` — `buildFallbackModels()` turns each
+  agent's stored `ModelConfig[]` into ready `BaseChatModel`s (skips, with a
+  warning, any fallback whose provider was removed or fails to construct —
+  never crashes task start over a bad fallback entry) and passes them to
+  `Executor` as `navigatorFallbackLLMs` / `plannerFallbackLLMs`.
+- `executor.ts` passes those through to `NavigatorAgent` / `PlannerAgent` as
+  `fallbackModels`.
+- On a switch, the agent emits a system event: `⚠️ <old model> was
+  unavailable — switched to <new model>` — visible in the side panel like any
+  other step message.
+- UI: new **Fallback** tab, `pages/options/src/components/FallbackModels.tsx`
+  — deliberately a new small file, NOT a change to the existing
+  `ModelSettings.tsx` (1700+ lines, out of scope). Per agent: primary model
+  shown read-only, ordered fallback list with up/down/remove, add row
+  (provider dropdown + a model dropdown sourced from that provider's already
+  -added model names). Saves immediately on every change.
+
+**Not done / real next step:** this hasn't been tested live end-to-end yet
+(needs two working providers configured at once, which has been the hard part
+all session) — do that before trusting it in a real run. Also not done: the
+"skip already-rate-limited-today" v2 refinement, and surfacing a fallback
+switch anywhere other than the one-line system message.
 
 ## 5. Current behaviour (guide mode is always on)
 
