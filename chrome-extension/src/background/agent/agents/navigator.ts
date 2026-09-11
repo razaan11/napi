@@ -57,6 +57,36 @@ function skillIdFromStep(actionName: string, label: string): string {
   return `${actionName}:${slug || 'step'}`;
 }
 
+// napi Stage 5 — Recovery, v1. When a guided step isn't verified, describe
+// where the user actually is and the way forward — never "that's wrong".
+// This is the fast, no-LLM-call path: a real per-step `expected` spec and
+// pre-authored recovery text for known wrong turns are Stage 6 (missions)
+// work; until then this is generic but calm and state-aware.
+function buildRecoveryMessage(params: {
+  userActed: boolean;
+  nextGoal: string;
+  currentUrl: string | undefined;
+  streak: number;
+}): string {
+  const { userActed, nextGoal, currentUrl, streak } = params;
+
+  if (!userActed) {
+    // The user hasn't acted yet — this is a wait, not a wrong turn.
+    return `Still waiting for you — no rush. When you're ready: ${nextGoal}`;
+  }
+
+  // The user acted (clicked something) but nothing detectable changed.
+  const site = toolFromUrl(currentUrl);
+  if (streak <= 1) {
+    return `That didn't seem to change anything on ${site} — you're still on the same page. Let's try again: ${nextGoal}`;
+  }
+  return (
+    `Still no change after a couple of tries on ${site}. Make sure you're clicking the highlighted ` +
+    `element — if it's no longer there, the page may have changed underneath it. Try again: ${nextGoal}. ` +
+    `If this keeps happening, refreshing the page and restarting the task usually clears it.`
+  );
+}
+
 interface ParsedModelOutput {
   current_state?: {
     next_goal?: string;
@@ -102,6 +132,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   private actionRegistry: NavigatorActionRegistry;
   private jsonSchema: Record<string, unknown>;
   private _stateHistory: BrowserStateHistory | null = null;
+  // napi Stage 5 — how many guided steps in a row the user acted on but
+  // nothing detectably changed (a "dead click"). Resets on any verified step.
+  // Used to escalate the recovery message's tone/detail, not to fail the task.
+  private consecutiveNotVerified = 0;
 
   constructor(
     actionRegistry: NavigatorActionRegistry,
@@ -329,6 +363,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           if (check.verified) {
             logger.info('🧭 CHECKER — verified:', check.reason);
             this.context.consecutiveFailures = 0;
+            this.consecutiveNotVerified = 0;
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `✅ Done: ${nextGoal}`);
 
             // Stage 4 — a verified guided step is proof the user did this, with
@@ -355,15 +390,24 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             if (!userActed) {
               // consecutive timeouts eventually end the task via the failure limit
               this.context.consecutiveFailures++;
+            } else {
+              // a dead click — the real "off-track" case Recovery cares about
+              this.consecutiveNotVerified++;
             }
-            this.context.emitEvent(
-              Actors.NAVIGATOR,
-              ExecutionState.STEP_FAIL,
-              `⚠️ That step doesn't look complete — ${check.reason}`,
-            );
+
+            // Stage 5 — Recovery, v1: describe where the user actually is and
+            // the way forward, instead of just repeating "try again". See
+            // buildRecoveryMessage for what's still missing (Stage 6).
+            const recoveryMessage = buildRecoveryMessage({
+              userActed,
+              nextGoal,
+              currentUrl: afterState?.url ?? currentState?.url,
+              streak: this.consecutiveNotVerified,
+            });
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_FAIL, `⚠️ ${recoveryMessage}`);
             actionResults = [
               new ActionResult({
-                extractedContent: `Step NOT verified for "${nextGoal}": ${check.reason}. Ask the user to try this step again.`,
+                extractedContent: `Step NOT verified for "${nextGoal}": ${check.reason}. ${recoveryMessage}`,
                 includeInMemory: true,
               }),
             ];

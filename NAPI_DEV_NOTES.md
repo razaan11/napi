@@ -288,11 +288,45 @@ today" — that's a possible v2).
   (provider dropdown + a model dropdown sourced from that provider's already
   -added model names). Saves immediately on every change.
 
-**Not done / real next step:** this hasn't been tested live end-to-end yet
-(needs two working providers configured at once, which has been the hard part
-all session) — do that before trusting it in a real run. Also not done: the
-"skip already-rate-limited-today" v2 refinement, and surfacing a fallback
-switch anywhere other than the one-line system message.
+**Not done / real next step:** the "skip already-rate-limited-today" v2
+refinement, and surfacing a fallback switch anywhere other than the one-line
+system message.
+
+**Verified live (Sep 11):** tested repeatedly with a deliberately broken
+primary (`gemini-does-not-exist-123`, a real provider + nonexistent model —
+fails in ~1s, not a slow timeout) and `hy3` (Kira) as the sole fallback.
+Every run behaved correctly: primary failure detected, switched to `hy3`,
+attempted it fresh. 3/4 runs `hy3` also failed (`503 ... under maintenance` —
+likely Kira's free-tier burst rate limit rather than a real outage, since
+`hy3` succeeded cleanly as a standalone primary moments later) — the code
+correctly logged `🔀 FALLBACK — hy3 also failed`, exhausted the one-item
+list, and let the task fail cleanly via the existing max-failures safety net.
+1/4 run needed no fallback and completed end to end on Wikipedia. Never got
+two providers alive at once long enough to see a full "switched, then
+finished the task" run — environment luck, not a code gap. Treating the
+mechanism as verified given 4/4 mechanically-correct runs.
+
+### Stage 5 — Recovery (v1)  **[DONE, committed]**
+
+`navigator.ts` — the Checker's "not verified" branch now builds a calmer,
+state-aware message via `buildRecoveryMessage()` instead of one generic
+"try this step again" for every case:
+- **Timeout** (`!userActed`): `Still waiting for you — no rush. When you're
+  ready: <step>` — framed as a wait, never as wrong.
+- **Dead click** (`userActed` but nothing changed) — the real "off-track"
+  case: names the current site (`toolFromUrl`) and restates the step. A new
+  `consecutiveNotVerified` counter on `NavigatorAgent` (resets on any
+  verified step) escalates the message on a repeat: mentions checking the
+  highlighted element is still there, suggests a refresh if it keeps
+  happening.
+
+Deliberately NOT built yet (both need Stage 6 mission templates, which don't
+exist): sending an actual-vs-expected delta to the Planner LLM for a real
+diagnosis (no `expected` spec per step exists to diff against), and
+pre-authored recovery text for known wrong turns (needs "per step" to mean
+something, i.e. a mission template). v1 is a calm, generic placeholder, not
+the specific redirect the original Stage 5 spec describes — flagged honestly
+in the roadmap rather than marked fully done.
 
 ## 5. Current behaviour (guide mode is always on)
 

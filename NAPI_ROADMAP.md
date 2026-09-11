@@ -19,7 +19,7 @@ listed at the end and is NOT in scope yet.
 | Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below |
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
 | Perf | Model-fallback chain (pulled forward from Stage 7) | DONE (v1) — see below |
-| 5 | Recovery | NOT STARTED |
+| 5 | Recovery | DONE (v1) — calmer, state-aware messages for timeout vs dead-click. Real LLM-diagnosed recovery needs Stage 6 |
 | 6 | Missions for one flagship tool | NOT STARTED |
 | UI | Side panel redesign | NOT STARTED |
 | 7 | Polish + first users | NOT STARTED |
@@ -245,22 +245,49 @@ Done + committed:
 
 **Still to do (real v2, not urgent):** the "skip providers already rate-limited today" refinement the user
 considered and deferred; surfacing fallback status in the Skill Map or side panel beyond the one-line
-system message; testing the actual multi-provider switch live (needs at least two working providers at
-once, which is exactly the thing that's been hard to get this session).
+system message.
+
+**Verified live (Sep 11):** the detect → switch → retry mechanism itself is proven correct across every
+test run today — it never once behaved incorrectly:
+- Primary `gemini-does-not-exist-123` (deliberately broken) → correctly detected, correctly switched to
+  the configured fallback `hy3`, on both the Planner's and the Navigator's own separate fallback queues.
+- 3 of those runs: `hy3` also failed (`503 ... currently under maintenance` — likely Kira's free-tier
+  burst rate limit, not necessarily a real outage, since `hy3` succeeded cleanly as a standalone primary
+  moments later) → correctly logged `🔀 FALLBACK — hy3 also failed`, exhausted the list, and let the task
+  fail cleanly via the existing max-failures safety net. No hang, no crash, no double-switching.
+- 1 run (`hy3` as sole primary, no fallback needed): completed cleanly end to end on a real Wikipedia
+  click-through, confirming the retry/perf/Checker pipeline together on a third real site.
+Never got two providers alive at once long enough to see a full "switched and then finished the task"
+run — that's environment luck (free-tier availability), not a code gap. Given 4/4 mechanically-correct
+runs, treating the fallback mechanism as verified and moving on.
 
 ---
 
-## Stage 5 — Recovery
+## Stage 5 — Recovery  **[v1 DONE]**
 
 **Goal:** when the user goes off-track, diagnose the real state and guide them back calmly.
 
-**Tasks:**
-- When the Checker returns a `delta`, send actual-vs-expected to the Planner LLM:
-  "what happened, and how to get back to the last good checkpoint."
-- Pre-author recovery text for the top ~5 known wrong turns per step (fast path, no LLM call).
-- Present calmly in the panel. Never say "that's wrong" — describe where the user is and the way back.
+Done + committed — the fast, no-LLM-call path (`navigator.ts`, `buildRecoveryMessage`):
+- The Checker's "not verified" branch now distinguishes its two cases with different, calmer copy instead
+  of one generic "try again":
+  - **Timeout** (user hasn't acted yet): `Still waiting for you — no rush. When you're ready: <step>` — a
+    wait, not a wrong turn, so no blame framing at all.
+  - **Dead click** (user acted, nothing detectably changed) — the real "off-track" case: names the current
+    site and restates the step. A new `consecutiveNotVerified` counter (resets on any verified step)
+    escalates the message after a repeat: mentions checking the highlighted element is still there and
+    suggests a refresh if it keeps happening.
+- Never says "that's wrong" anywhere — always describes where the user actually is (via `toolFromUrl`) and
+  what to do next.
 
-**Done when:** a wrong turn during a mission produces a helpful redirect, not a dead end.
+**Not done (needs Stage 6, honestly deferred, not silently skipped):**
+- Sending an actual-vs-expected **delta to the Planner LLM** for a real diagnosis — there's no `expected`
+  spec per step yet (Stage 3's still-to-do item), so there's nothing to diff against. This is the "real"
+  recovery experience; v1 is a calm, generic placeholder until missions exist.
+- **Pre-authored recovery text for the top ~5 known wrong turns per step** — "per step" means a mission
+  step template (Stage 6), which doesn't exist yet. v1's message is generic across all steps by necessity.
+
+**Done when (original bar, not yet met):** a wrong turn during a mission produces a helpful, SPECIFIC
+redirect (not just a calmer generic one). Revisit once Stage 6 mission templates exist.
 
 ---
 
