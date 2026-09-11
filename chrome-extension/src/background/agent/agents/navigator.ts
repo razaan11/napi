@@ -326,7 +326,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             // Stage 4 — a verified guided step is proof the user did this, with
             // help. Record it in the Skill Map. Best-effort: never let a
             // storage hiccup interrupt the guide loop.
-            const tool = toolFromUrl(afterState?.url ?? currentState?.url);
+            // Attribute the skill to the page the user ACTED on, not where a
+            // navigation may have landed them (e.g. clicking a link on
+            // example.com is an example.com skill, even though it lands on
+            // iana.org).
+            const tool = toolFromUrl(currentState?.url ?? afterState?.url);
             const skillId = skillIdFromStep(actionName, nextGoal);
             skillMapStore.recordGuidedStep({ tool, skillId, label: nextGoal }).catch(e => {
               logger.warning('🧭 SKILL MAP — could not record guided step', e);
