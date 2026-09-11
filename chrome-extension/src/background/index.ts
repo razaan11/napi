@@ -6,6 +6,7 @@ import {
   generalSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
+  skillMapStore,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
@@ -54,6 +55,13 @@ chrome.tabs.onRemoved.addListener(tabId => {
 });
 
 logger.info('background loaded');
+
+// napi Stage 4 — decay pass: flip long-unused 'unaided' skills to 'rusty' so
+// the Skill Map stays honest. Cheap and idempotent; fine to run on every
+// service-worker wake.
+skillMapStore.applyDecay().catch(error => {
+  logger.warning('Skill Map decay pass failed', error);
+});
 
 // Initialize analytics
 analytics.init().catch(error => {

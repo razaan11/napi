@@ -203,6 +203,33 @@ Fixes:
 Not done here: measuring real per-step latency on a heavy app, and a proper
 model-fallback chain (try model A, fall back to B on failure) — that's Stage 7.
 
+**Verified live** (Sep 11): full guide run on `example.com` (spotlight -> click
+-> URL change -> `verified: the page navigated as expected` via the cheap
+path -> no-target `done` -> Planner re-run on completion) and again on a real
+heavy page, `w3schools.com/html/html_forms.asp` — the lightweight Checker path
+fired correctly across 4 consecutive navigations with very different DOM sizes
+(7219 -> 2090 -> 2743 -> 5771 -> 2090px). Also confirmed: cancelling mid-task
+(`RequestCancelledError`) shuts down cleanly, no crash.
+
+### Stage 4 — the Skill Map (v1)  **[DONE, committed]**
+
+- `packages/storage/lib/skillMap/skillMap.ts` — new store, same `createStorage`
+  pattern as every other store here (survives restart via `chrome.storage.local`).
+  `SkillNode = { tool, skillId, label, status, guidedCount, verifiedCount,
+  lastGuidedAt, lastVerifiedAt }`. `status` is `'not-started' | 'guided' |
+  'unaided' | 'rusty'`.
+- `navigator.ts` — every Checker-verified guided step calls
+  `skillMapStore.recordGuidedStep(...)`. `tool` = the page hostname
+  (`toolFromUrl`), `skillId` = a slug of the action + goal text
+  (`skillIdFromStep`) — a placeholder until Stage 6 missions supply real ids.
+- `background/index.ts` — calls `skillMapStore.applyDecay()` on every
+  service-worker wake; flips stale `unaided` skills to `rusty` after 14 days.
+- `pages/options/src/components/SkillMap.tsx` — new **Skills** tab in Options,
+  grouped by tool, showing label / status pill / counts / last activity.
+- `recordUnaidedSuccess` exists in the store but nothing calls it yet — no
+  skill will ever reach `unaided` until Stage 6 adds an end-of-mission
+  no-hints challenge that calls it.
+
 ## 5. Current behaviour (guide mode is always on)
 
 Per Navigator step: LLM decides -> guide branch runs. If the action has no target element index

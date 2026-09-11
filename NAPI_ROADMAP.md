@@ -17,7 +17,7 @@ listed at the end and is NOT in scope yet.
 | 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`) and **verified live** on example.com (Sep 11): click → URL change → `verified: the page navigated as expected`. Tiers 1 + 3, per-step `expected` spec, and calibration on a real flagship still to do |
 | Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below. Model-fallback chain still deferred to Stage 7 |
-| 4 | Skill Map | NOT STARTED |
+| 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
 | 5 | Recovery | NOT STARTED |
 | 6 | Missions for one flagship tool | NOT STARTED |
 | UI | Side panel redesign | NOT STARTED |
@@ -168,21 +168,34 @@ Still to do (moved to Stage 7):
 
 ---
 
-## Stage 4 — the Skill Map
+## Stage 4 — the Skill Map  **[v1 DONE]**
 
 **Goal:** persist what the user can actually do, per tool.
 
-**Tasks:**
-- Schema: `tool -> skillNode -> { status: 'not-started' | 'guided' | 'unaided' | 'rusty',
-  verifiedCount, lastVerifiedAt }`.
-- New store in `packages/storage` backed by `chrome.storage.local` (or IndexedDB for larger data).
-- Update rules:
-  - after a guided mission, mark touched skills `guided`.
-  - mark `unaided` ONLY after the end-of-mission no-hints challenge passes the Checker.
-  - a decay pass flips `unaided` -> `rusty` after N days unused.
-- Minimal render in the side panel (list or tree).
+Done + committed:
+- **Schema + store** — `packages/storage/lib/skillMap/skillMap.ts`. `SkillNode = { tool, skillId, label,
+  status: 'not-started' | 'guided' | 'unaided' | 'rusty', guidedCount, verifiedCount, lastGuidedAt,
+  lastVerifiedAt }`, keyed by `${tool}::${skillId}`, backed by `chrome.storage.local` via the same
+  `createStorage` helper every other store uses (`generalSettingsStore`, `favoritesStorage`, ...) — so it
+  survives an extension restart the same way they do. API: `recordGuidedStep`, `recordUnaidedSuccess`,
+  `applyDecay(thresholdDays)`, `getAllSkills`, `getSkillsForTool`, `getSkill`, `resetAll`.
+- **Hook-in** — `navigator.ts`, inside the guide branch's `check.verified` block: every Checker-verified
+  guided step calls `skillMapStore.recordGuidedStep({ tool, skillId, label })`. `tool` = the page's
+  hostname (`toolFromUrl`); `skillId` = a slug of the action name + the step's goal text
+  (`skillIdFromStep`) — crude on purpose, since there's no mission catalog yet. A repeat guided pass never
+  downgrades an already-`unaided` skill back to `guided`, it just bumps the counters. Best-effort: a
+  storage failure only logs a warning, never interrupts the guide loop.
+- **`recordUnaidedSuccess`** exists and is wired into the store's public API, but nothing calls it yet —
+  that's Stage 6's "no-hints challenge passes the Checker" event. Skills will sit at `guided` until then.
+- **Decay pass** — `background/index.ts` calls `skillMapStore.applyDecay()` once on every service-worker
+  wake (cheap, idempotent): any `unaided` skill untouched for 14+ days flips to `rusty`.
+- **Minimal UI** — new **Skills** tab in the Options page (`pages/options/src/components/SkillMap.tsx`),
+  grouped by tool, each row showing the step label, a status pill, guided/verified counts, and last
+  activity. Matches the existing `GeneralSettings.tsx` visual style. The real side-panel tree view is
+  still the later **UI stage** item, once the panel redesign happens.
 
-**Done when:** completing a mission updates the map and it survives an extension restart.
+**Still to do:** once Stage 6 missions exist, call `recordUnaidedSuccess` from the mission's end-of-mission
+challenge; better `skillId`s from mission templates instead of the slug heuristic; a side-panel view.
 
 ---
 

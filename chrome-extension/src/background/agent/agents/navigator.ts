@@ -30,8 +30,32 @@ import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
 import { waitForGuideStepClick, watchGuideStepTarget, type GuideStepWatch } from '@src/background/guide-step';
 import { verifyStep } from '../checker';
+import { skillMapStore } from '@extension/storage';
 
 const logger = createLogger('NavigatorAgent');
+
+// napi Stage 4 — turn a page URL into a "tool" id for the Skill Map.
+// Until Stage 6 gives us mission-defined tool ids, the hostname is a
+// reasonable stand-in (e.g. "www.notion.so").
+function toolFromUrl(url: string | undefined | null): string {
+  if (!url) return 'unknown';
+  try {
+    return new URL(url).hostname || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// napi Stage 4 — turn an action + its goal text into a stable-ish skill id.
+// Crude on purpose: Stage 6 missions will supply real skill ids directly.
+function skillIdFromStep(actionName: string, label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `${actionName}:${slug || 'step'}`;
+}
 
 interface ParsedModelOutput {
   current_state?: {
@@ -298,6 +322,16 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             logger.info('🧭 CHECKER — verified:', check.reason);
             this.context.consecutiveFailures = 0;
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `✅ Done: ${nextGoal}`);
+
+            // Stage 4 — a verified guided step is proof the user did this, with
+            // help. Record it in the Skill Map. Best-effort: never let a
+            // storage hiccup interrupt the guide loop.
+            const tool = toolFromUrl(afterState?.url ?? currentState?.url);
+            const skillId = skillIdFromStep(actionName, nextGoal);
+            skillMapStore.recordGuidedStep({ tool, skillId, label: nextGoal }).catch(e => {
+              logger.warning('🧭 SKILL MAP — could not record guided step', e);
+            });
+
             actionResults = [
               new ActionResult({
                 extractedContent: `Step verified (${check.reason}): "${nextGoal}"`,
