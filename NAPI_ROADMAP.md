@@ -143,6 +143,18 @@ once more (triggered by `navigatorDone`, not the interval) and confirmed
 completion. All three perf changes and the guide loop's happy path now
 confirmed end to end, not just in isolation.
 
+**Verified live again (Sep 11)** — real heavy page, `w3schools.com/html/html_forms.asp`
+(scroll height 7219px), task "click Next to go to the next tutorial page":
+the Checker's lightweight URL-change path fired correctly **four times in a
+row** across pages of very different DOM sizes (7219 -> 2090 -> 2743 -> 5771
+-> 2090px), each one `✅ CHECKER — verified: the page navigated as expected`
+with no full DOM rebuild logged. The task was eventually stopped by the user
+(`RequestCancelledError: Aborted`, handled cleanly, no crash) because the
+open-ended instruction ("go to next page") was satisfiable on every page in
+the series — not a detection bug, a test-task wording issue. **Lesson for
+Stage 6:** author each mission step as a single bounded instruction ("click
+Next once"), not an open-ended one, so the loop has a natural stop.
+
 Still to do (moved to Stage 7):
 - Measure real per-step latency on a heavy app (Notion / Gmail) and set a
   budget.
