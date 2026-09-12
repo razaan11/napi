@@ -438,15 +438,21 @@ is known.
 
 ---
 
-## Stage 7 — polish + first users
+## Stage 7 — polish + first users  **[in progress]**
 
 - Onboarding: paste a model key (or bundle a limited one), pick a goal.
 - Graceful model-error handling, clear messages, no dead ends. Retry cap
   (`helper.ts`) and the model-fallback chain are both done (see above); still
   needed: per-step latency budgets on a heavy app, and deciding whether v2's
   "skip providers already rate-limited today" refinement is worth it.
-- Package the extension; write a one-page install guide.
-- Give it to 5-10 beginners; watch them use it; log every place it breaks or confuses.
+- **Package the extension; write a one-page install guide. — DONE (Sep 12).**
+  `pnpm zip` → `dist-zip/extension-<date>.zip`. `NAPI_INSTALL_GUIDE.md` covers: what you need (a free
+  Groq/Gemini key), loading the unpacked extension, first-time model + guide-mode setup, how to use
+  it (free-text tasks or the Missions tab), known limitations, and what to note when reporting a bug.
+  Still displays as "Nanobrowser" in Chrome for now — a visual rebrand to "napi" is a separate,
+  later step, not done here.
+- Give it to 5-10 beginners; watch them use it; log every place it breaks or confuses. **Not started**
+  — the install guide above is what makes this possible; next real step is finding testers.
 
 **Done when:** a stranger can install it and finish a mission unaided.
 
