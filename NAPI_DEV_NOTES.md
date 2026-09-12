@@ -328,30 +328,53 @@ something, i.e. a mission template). v1 is a calm, generic placeholder, not
 the specific redirect the original Stage 5 spec describes — flagged honestly
 in the roadmap rather than marked fully done.
 
-### Stage 6 — Missions (v1)  **[DONE, committed]**
+### Stage 6 — Missions (v1.1)  **[DONE, committed]**
 
-Flagship chosen: **Notion**. Scope: author real mission content using the guide loop as-is, no new
-execution mechanics — a deliberate trade to ship something real today.
+Flagship chosen: **Notion**. First cut (v1) authored mission content but ran it manually (copy each step
+into chat by hand) — the user's reaction was immediate: "this doesn't make anything easier for napi, it's
+a cheat-sheet for me." Correct. v1.1, same session, replaced manual copy-paste with a real automatic
+runner.
 
-- `pages/options/src/missions.ts` — `Mission { id, tool, title, description, steps: { instruction, why }[] }`.
-  One authored mission, `notion-create-a-page`, 3 steps. Lives in the `options` page's own workspace (not
-  `chrome-extension/src`) since it's pure display data for now and adding a new shared `packages/` workspace
-  just for this would be a bigger structural change than this v1 warrants — a real mission runner (Stage 6
-  v2) can relocate/import this when it exists.
-- `pages/options/src/components/Missions.tsx` — new **Missions** tab: shows the mission, its steps'
-  instruction + why, and a per-step Copy button (`navigator.clipboard.writeText`).
-- **"Running" a mission today = manual**: turn on Guide mode, open Notion, copy each step into the chat in
-  order, do it when spotlighted. Every step is just an ordinary guided task — same Checker, same Recovery
-  messages, same Skill Map recording (`tool: 'www.notion.so'`) as anything else typed into the chat. Zero
-  new runtime code.
-- Step wording is a first draft from Notion's known web UI (sidebar "+ New page", etc.) — **not verified
-  against a live Notion account this session** (would need real login). Needs the same test-then-fix pass
-  every other feature here got.
+- `packages/storage/lib/missions/missions.ts` — `Mission { id, tool, title, description, steps: {
+  instruction, why }[] }`. Moved here from `pages/options/src/missions.ts` so `pages/side-panel` can import
+  it too (both already depend on `@extension/storage` — no new workspace package needed). One authored
+  mission, `notion-create-a-page`, 3 steps.
+  - **Gotcha hit while moving it:** after adding the new export, `eslint`'s `import/named` rule flagged
+    `MISSIONS not found in '@extension/storage'` in both consumer packages, even though `tsc --noEmit`
+    passed cleanly everywhere. Cause: `@extension/storage`'s `package.json` has `"types": "index.ts"`
+    (TypeScript reads live source — always correct) but `"main": "./dist/index.js"` (Node/ESLint resolution
+    reads the built bundle — stale, since `pnpm build` doesn't rebuild `packages/storage`'s `dist`, only its
+    own `ready` script does). Fix: `pnpm --filter @extension/storage ready` to regenerate `dist` before
+    re-linting. Worth remembering any time a new export is added to a `packages/*` lib and downstream lint
+    claims it doesn't exist despite `tsc` being happy.
+- **The mission runner — `pages/side-panel/src/SidePanel.tsx`.** New **Missions** icon (`FiBookOpen`) opens
+  a list (`components/MissionList.tsx`) with a **Start** button per mission. `handleStartMission`: clears
+  the chat, sends step 1 via the existing `handleSendMessage` exactly like a typed task. Advancing steps
+  happens inside `handleTaskState`'s existing `TASK_OK`/`TASK_FAIL` handling: `advanceMission()` sends the
+  next step as a `follow_up_task` (no retyping); `stopMission()` ends it cleanly on failure, naming which
+  step it died on.
+  - **Why a ref, not just state:** `handleTaskState` is a `useCallback` memoized once (`[appendMessage]`
+    deps, which never change), so its closure is fixed at first render. If `advanceMission`/`stopMission`
+    read mission progress from React state directly, they'd see whatever it was on mount, not the current
+    step — classic stale-closure bug in a long-lived port-message handler. Fix: track progress in
+    `activeMissionRef` (a ref, always current via `.current` mutation) and only mirror it into React state
+    (`runningMission`) for rendering. Same reasoning for `handleSendMessageRef` — `handleSendMessage` itself
+    is a fresh function every render (reads `isFollowUpMode` state), so calling it from inside the
+    memoized `handleTaskState` needed the same always-fresh-ref treatment
+    (`handleSendMessageRef.current = handleSendMessage;` re-assigned every render, safe since it only
+    stores a reference, not a hook).
+  - A "▶️ Mission in progress — step X of Y" banner shows above the chat while one is running.
+  - v1.1 does not resume mid-mission after a failure — restart from step 1.
+- `pages/options/src/components/Missions.tsx` — kept as a **read-only reference view** (full description,
+  each step's "why", manual Copy button) for anyone who'd rather read ahead or go one step at a time by
+  hand.
+- Step wording is still a first draft from Notion's known web UI (sidebar "+ New page", etc.) — not
+  verified against a live Notion account yet. Needs the same test-then-fix pass every other feature here
+  got.
 
-**Not done (Stage 6 v2, in priority order):** an automatic mission runner (feed steps to the Executor
-instead of retyping them), the end-of-mission unaided challenge (nothing calls `recordUnaidedSuccess` yet),
-Tier-1 verification via Notion's API (OAuth), an LLM mission-picker, and 3-4 more missions (not worth
-authoring until the runner exists).
+**Not done (Stage 6 v2, in priority order):** the end-of-mission unaided challenge (nothing calls
+`recordUnaidedSuccess` yet), Tier-1 verification via Notion's API (OAuth), an LLM mission-picker,
+mid-mission resume after a failure, and 3-4 more missions (worth authoring now that the runner exists).
 
 ## 5. Current behaviour (guide mode is always on)
 

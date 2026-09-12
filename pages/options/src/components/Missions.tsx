@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MISSIONS, type Mission } from '../missions';
+import { MISSIONS, type Mission } from '@extension/storage';
 
 interface MissionsProps {
   isDarkMode?: boolean;
@@ -57,9 +57,11 @@ export const Missions = ({ isDarkMode = false }: MissionsProps) => {
           Missions
         </h2>
         <p className={`mb-4 text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          Hand-written lessons, v1. Turn on Guide mode, open the app named below, then copy each step in order into the
-          chat and do it when napi spotlights it. Every step runs through the same guide loop, verification, and skill
-          tracking as anything else you type.
+          Hand-written lessons. Turn on Guide mode, open the app named below, then open the side panel&rsquo;s{' '}
+          <strong>Missions</strong> tab and press Start — napi sends each step automatically and waits for you to do it
+          before moving to the next one. (You can also copy a step from here into the chat by hand if you&rsquo;d rather
+          go one at a time yourself.) Every step runs through the same guide loop, verification, and skill tracking as
+          anything else you type.
         </p>
 
         <div className="space-y-4">

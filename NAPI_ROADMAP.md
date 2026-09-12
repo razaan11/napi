@@ -20,7 +20,7 @@ listed at the end and is NOT in scope yet.
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
 | Perf | Model-fallback chain (pulled forward from Stage 7) | DONE (v1) — see below |
 | 5 | Recovery | DONE (v1) — calmer, state-aware messages for timeout vs dead-click. Real LLM-diagnosed recovery needs Stage 6 |
-| 6 | Missions for one flagship tool | DONE (v1) — 1 hand-authored Notion mission, read-only Options UI. No mission runner / unaided challenge / OAuth / LLM picker yet |
+| 6 | Missions for one flagship tool | DONE (v1.1) — 1 hand-authored Notion mission, an automatic side-panel mission runner (napi sends each step itself), and a read-only Options view. No unaided challenge / OAuth / LLM picker yet |
 | UI | Side panel redesign | NOT STARTED |
 | 7 | Polish + first users | NOT STARTED |
 
@@ -291,40 +291,53 @@ redirect (not just a calmer generic one). Revisit once Stage 6 mission templates
 
 ---
 
-## Stage 6 — Missions for one flagship tool  **[v1 DONE]**
+## Stage 6 — Missions for one flagship tool  **[v1.1 DONE]**
 
-**Goal:** real, hand-authored lessons for ONE web app. **Flagship chosen: Notion.**
+**Goal:** real, hand-authored lessons for ONE web app, that napi runs FOR you. **Flagship chosen: Notion.**
 
-Done + committed — the "just author real missions, no new mechanics" scope:
-- `pages/options/src/missions.ts` — a `Mission { id, tool, title, description, steps: { instruction, why }[] }`
-  type (simpler than the original `{ instruction, targetDescriptor, why, verification, knownWrongStates }`
-  sketch — no `verification`/`knownWrongStates` fields yet since there's no runner to consume them). One
-  authored mission: **"Create a new page in Notion"**, 3 steps.
-- `pages/options/src/components/Missions.tsx` — new **Missions** tab in Options: shows the mission, each
-  step's instruction + its "why", and a Copy button per step.
-- **Deliberately not a new execution mechanism.** "Running" a mission today means: turn on Guide mode, open
-  Notion, copy each step from this tab into the chat in order, and do it when spotlighted. Every step goes
-  through the exact same guide loop, Tier-2 Checker, Recovery messaging, and Skill Map recording as any
-  other guided task — zero new runtime code, zero new risk. This was the deliberate trade for shipping
-  something real today instead of a bigger, riskier "mission runner" rebuild.
-- Step wording is a **first draft** based on Notion's known web UI (the sidebar "+ New page" control,
-  etc.) — not verified against a live Notion account this session (would need real login). Validate/tune
-  it the same way every other feature here got tested: run it, see what breaks, fix the wording.
+**v1** shipped mission content only (read a lesson, copy each step into the chat by hand) — user feedback
+was immediate and correct: that doesn't make anything easier for napi, it's just a cheat-sheet for the
+human. **v1.1**, same session, replaced that with the real thing: napi runs the mission automatically.
+
+Done + committed:
+- `packages/storage/lib/missions/missions.ts` — `Mission { id, tool, title, description, steps: {
+  instruction, why }[] }` (moved here from the `options` page so the side panel can import it too — both
+  already depend on `@extension/storage`, so no new workspace package was needed). One authored mission:
+  **"Create a new page in Notion"**, 3 steps.
+- **The mission runner — `pages/side-panel/src/SidePanel.tsx`.** A new **Missions** icon/tab in the side
+  panel (`FiBookOpen`) lists missions with a **Start** button. Starting one:
+  1. clears the chat (`handleNewChat`) and sends step 1 exactly like a typed task (`handleSendMessage`).
+  2. On that task's `TASK_OK` event, `advanceMission()` automatically sends the next step as a
+     `follow_up_task` — no retyping, no copy-paste.
+  3. On `TASK_FAIL`, `stopMission()` ends the mission cleanly with a message naming which step it died on
+     (v1.1 doesn't resume mid-mission — restart from the top).
+  4. A small "▶️ Mission in progress — step X of Y" banner shows above the chat the whole time.
+  - Every step is still just an ordinary guided task under the hood — same guide loop, Tier-2 Checker,
+    Recovery messaging, and Skill Map recording as anything typed by hand. The runner only automates
+    *sending* each step; it doesn't change how a step is executed or verified.
+  - Implementation note: the mission's progress lives in a `ref` (`activeMissionRef`), not only React
+    state, because the event handler that needs to read it (`handleTaskState`) is a `useCallback` memoized
+    once at mount — a ref sidesteps the stale-closure trap that would otherwise make it see an outdated
+    step index.
+- `pages/options/src/components/Missions.tsx` — kept as a **reference view**: full description, each
+  step's "why", and a manual Copy button per step, for anyone who wants to read ahead or go one step at a
+  time by hand instead of using the automatic runner.
+- Step wording is still a **first draft** based on Notion's known web UI (the sidebar "+ New page"
+  control, etc.) — not verified against a live Notion account yet. Validate/tune it the same way every
+  other feature here got tested: run it, see what breaks, fix the wording.
 
 **Not done (real Stage 6 v2, in priority order):**
-1. **A mission runner** — feed these steps to the Executor automatically instead of the user retyping each
-   line. This is what turns "a lesson plan you read" into "a lesson napi walks you through."
-2. **The unaided challenge** — a "no hints" mode for a mission's last step (don't spotlight, just verify)
+1. **The unaided challenge** — a "no hints" mode for a mission's last step (don't spotlight, just verify)
    that's what actually unlocks a Skill Map skill's `unaided` status via `recordUnaidedSuccess`. Currently
    impossible — nothing calls that function yet.
-3. **Tier-1 verification via Notion's API** (OAuth, read-mostly scopes) instead of only the on-page Checker.
-4. **An LLM mission-picker** that maps a free-text goal to the right mission and skips steps the Skill Map
+2. **Tier-1 verification via Notion's API** (OAuth, read-mostly scopes) instead of only the on-page Checker.
+3. **An LLM mission-picker** that maps a free-text goal to the right mission and skips steps the Skill Map
    already shows as mastered.
-5. 3-4 more missions (database, share, template) once the runner exists — hand-typing more than one
-   mission isn't worth it before step 1 above is built.
+4. **Resuming mid-mission** after a `TASK_FAIL` instead of restarting from step 1.
+5. 3-4 more missions (database, share, template) — worth authoring now that the runner exists.
 
-**Done when (original bar, not yet met):** 3-5 missions run start to finish automatically, including the
-unaided challenge and skill-map update. v1 proves the content is real and testable; the automation is next.
+**Done when (original bar, mostly met):** missions run start to finish automatically — true as of v1.1.
+Still open: the unaided challenge and skill-map update at the end of a mission, and more than one mission.
 
 ---
 

@@ -1,18 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { RxDiscordLogo } from 'react-icons/rx';
-import { FiSettings } from 'react-icons/fi';
+import { FiSettings, FiBookOpen } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
-import { type Message, Actors, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
+import {
+  type Message,
+  Actors,
+  chatHistoryStore,
+  agentModelStore,
+  generalSettingsStore,
+  MISSIONS,
+  type Mission,
+} from '@extension/storage';
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
+import MissionList from './components/MissionList';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
+
+// napi Stage 6 — one mission step in progress, tracked in a ref so the
+// port-message handler (memoized once, long-lived) always sees the current
+// value instead of a stale one captured at mount.
+interface ActiveMission {
+  mission: Mission;
+  stepIndex: number;
+}
 
 // Declare chrome API types
 declare global {
@@ -28,6 +45,12 @@ const SidePanel = () => {
   const [showStopButton, setShowStopButton] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showMissions, setShowMissions] = useState(false);
+  // napi Stage 6 — which mission (if any) is currently auto-running, and
+  // which step it's on. Mirrored in a ref (below) for the port handler.
+  const [runningMission, setRunningMission] = useState<{ id: string; stepIndex: number; totalSteps: number } | null>(
+    null,
+  );
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
   const [isFollowUpMode, setIsFollowUpMode] = useState(false);
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
@@ -39,6 +62,11 @@ const SidePanel = () => {
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayEnabled, setReplayEnabled] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const activeMissionRef = useRef<ActiveMission | null>(null);
+  // Always-fresh handle to handleSendMessage (defined lower in this component
+  // and recreated every render) so the mission-advance logic below — invoked
+  // from a memoized, long-lived port callback — never calls a stale closure.
+  const handleSendMessageRef = useRef<(text: string, displayText?: string) => Promise<void>>(async () => {});
   const isReplayingRef = useRef<boolean>(false);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -147,6 +175,47 @@ const SidePanel = () => {
     }
   }, []);
 
+  // napi Stage 6 — mission runner. These only ever touch refs, state
+  // setters, and the already-stable appendMessage, so it's safe for
+  // handleTaskState's memoized closure (fixed at first render) to call them
+  // without going stale: every value they read is re-fetched from a
+  // mutable container at call time, not captured in a closure.
+  const advanceMission = () => {
+    const active = activeMissionRef.current;
+    if (!active) return;
+
+    const nextIndex = active.stepIndex + 1;
+    if (nextIndex < active.mission.steps.length) {
+      activeMissionRef.current = { mission: active.mission, stepIndex: nextIndex };
+      setRunningMission({ id: active.mission.id, stepIndex: nextIndex, totalSteps: active.mission.steps.length });
+      void handleSendMessageRef.current(active.mission.steps[nextIndex].instruction);
+    } else {
+      activeMissionRef.current = null;
+      setRunningMission(null);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `🎉 Mission complete: ${active.mission.title}`,
+        timestamp: Date.now(),
+      });
+    }
+  };
+
+  const stopMission = () => {
+    const active = activeMissionRef.current;
+    if (!active) return;
+
+    activeMissionRef.current = null;
+    setRunningMission(null);
+    appendMessage({
+      actor: Actors.SYSTEM,
+      content:
+        `🛑 Mission stopped: "${active.mission.title}" didn't finish step ${active.stepIndex + 1} of ` +
+        `${active.mission.steps.length}. Fix whatever's blocking it, then press Start again to retry from ` +
+        `the top — v1 doesn't resume mid-mission.`,
+      timestamp: Date.now(),
+    });
+  };
+
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
       const { actor, state, timestamp, data } = event;
@@ -166,6 +235,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              advanceMission();
               break;
             case ExecutionState.TASK_FAIL:
               setIsFollowUpMode(true);
@@ -173,6 +243,7 @@ const SidePanel = () => {
               setShowStopButton(false);
               setIsReplaying(false);
               skip = false;
+              stopMission();
               break;
             case ExecutionState.TASK_CANCEL:
               setIsFollowUpMode(false);
@@ -643,6 +714,28 @@ const SidePanel = () => {
     }
   };
 
+  // Keep the ref in sync every render so advanceMission (called from a
+  // memoized, long-lived closure) always sends through the current version.
+  handleSendMessageRef.current = handleSendMessage;
+
+  // napi Stage 6 — kick off a mission: start a clean chat session, then send
+  // its first step like any normal task. Each subsequent step is sent by
+  // advanceMission() above once the previous one's TASK_OK event arrives.
+  const handleStartMission = async (mission: Mission) => {
+    if (mission.steps.length === 0) return;
+
+    handleNewChat();
+    activeMissionRef.current = { mission, stepIndex: 0 };
+    setRunningMission({ id: mission.id, stepIndex: 0, totalSteps: mission.steps.length });
+    setShowMissions(false);
+    appendMessage({
+      actor: Actors.SYSTEM,
+      content: `▶️ Starting mission: ${mission.title} (${mission.steps.length} step${mission.steps.length === 1 ? '' : 's'})`,
+      timestamp: Date.now(),
+    });
+    await handleSendMessage(mission.steps[0].instruction);
+  };
+
   const handleStopTask = async () => {
     try {
       portRef.current?.postMessage({
@@ -1013,12 +1106,20 @@ const SidePanel = () => {
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
+            ) : showMissions ? (
+              <button
+                type="button"
+                onClick={() => setShowMissions(false)}
+                className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                aria-label={t('nav_back_a11y')}>
+                {t('nav_back')}
+              </button>
             ) : (
               <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
             )}
           </div>
           <div className="header-icons">
-            {!showHistory && (
+            {!showHistory && !showMissions && (
               <>
                 <button
                   type="button"
@@ -1037,6 +1138,15 @@ const SidePanel = () => {
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMissions(true)}
+                  onKeyDown={e => e.key === 'Enter' && setShowMissions(true)}
+                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  aria-label="Missions"
+                  tabIndex={0}>
+                  <FiBookOpen size={20} />
                 </button>
               </>
             )}
@@ -1069,6 +1179,13 @@ const SidePanel = () => {
               isDarkMode={isDarkMode}
             />
           </div>
+        ) : showMissions ? (
+          <MissionList
+            missions={MISSIONS}
+            runningMissionId={runningMission?.id ?? null}
+            onStart={handleStartMission}
+            isDarkMode={isDarkMode}
+          />
         ) : (
           <>
             {/* Show loading state while checking model configuration */}
@@ -1123,6 +1240,12 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
+                {runningMission && (
+                  <div
+                    className={`px-3 py-1.5 text-xs font-medium ${isDarkMode ? 'bg-sky-900/60 text-sky-200' : 'bg-sky-50 text-sky-700'}`}>
+                    ▶️ Mission in progress — step {runningMission.stepIndex + 1} of {runningMission.totalSteps}
+                  </div>
+                )}
                 {messages.length === 0 && (
                   <>
                     <div
