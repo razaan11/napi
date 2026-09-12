@@ -72,7 +72,23 @@ autonomous auto mode, wrong for guide mode where a human still has to perform th
 `executor.ts`: `PlannerPrompt` now takes a `guideMode` flag and appends an addendum telling it not to mark
 multi-step goals done until the real-world outcome is achieved, and to keep emitting `next_steps` (which
 the Navigator turns into spotlighted actions) instead of handing off the rest as an instructions list.
-Auto mode's prompt is untouched. **Not yet re-verified live** — retest the same LinkedIn task next.
+Auto mode's prompt is untouched.
+
+**Third bug found + fixed live (Sep 12), same LinkedIn retest:** the Planner fix worked — it correctly kept
+`done: false` after the composer opened. But the Navigator's `next_goal` for the retype step read "Click
+inside the text box, then guide them to replace 'hi' with their real message and click the Post button" —
+while only ONE action (a click on the text box) actually executed and got watched that turn, since guide
+mode forces `maxActionsPerStep: 1`. The user saw a 3-part instruction but only the first part was ever
+going to be detected — and it picked `click_element` over `input_text` for a field with leftover text, so
+a retype would never have been watched for a value match either. **Fixed** in
+`prompts/templates/navigator.ts` + `prompts/navigator.ts` + `executor.ts`: same pattern as the Planner fix
+— `NavigatorPrompt` takes a `guideMode` flag and inserts an addendum (inside the `<system_instructions>`
+block) telling it to describe ONLY the single upcoming action in `next_goal`, never narrate what happens
+after it, and to use `input_text` directly rather than a separate click-to-focus step when replacing
+existing text. Auto mode's prompt is unchanged.
+
+**Not yet re-verified live** — three real bugs found and fixed from one test case; retest the same
+LinkedIn task once more to confirm all three hold together on a fresh run.
 
 **Also observed (not yet acted on):** the same run wasted 3 steps on "Frame with ID 624 is showing error
 page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
