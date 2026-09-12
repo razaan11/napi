@@ -42,8 +42,18 @@ export function notifyGuideStepClick(tabId: number, stepId: string): boolean {
 }
 
 export interface GuideStepWatch {
-  /** 'click' = advance on a real click; 'value' = advance when the field value matches expectedText. */
-  mode: 'click' | 'value';
+  /**
+   * 'click' = advance on a real click.
+   * 'value' = advance when the field value matches expectedText exactly (the
+   *   model already knows what to type — e.g. filling in known form data).
+   * 'input' = advance the moment the field has ANY non-empty content — for
+   *   free-form composing where the model has no expected text (a LinkedIn
+   *   post, an email body, ...). Without this, a click_element step on an
+   *   already-focused text field (nothing to click, the user just types)
+   *   would never see a click event and time out even though the user did
+   *   exactly the right thing.
+   */
+  mode: 'click' | 'value' | 'input';
   expectedText?: string;
 }
 

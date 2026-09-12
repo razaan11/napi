@@ -14,10 +14,15 @@ chrome.runtime.onMessage.addListener(message => {
   if (!target) return;
 
   const stepId: string = message.stepId;
-  const mode: 'click' | 'value' = message.mode === 'value' ? 'value' : 'click';
+  const mode: 'click' | 'value' | 'input' =
+    message.mode === 'value' ? 'value' : message.mode === 'input' ? 'input' : 'click';
 
-  if (mode === 'value') {
-    // Advance when the user has typed the expected text into the spotlighted field.
+  if (mode === 'value' || mode === 'input') {
+    // 'value': advance when the user has typed the EXACT expected text (the model
+    // already knows what belongs here — e.g. known form data).
+    // 'input': advance the moment the field has ANY non-empty content — for
+    // free-form composing where there's no expected text to match (a post,
+    // an email body, ...).
     const expected = String(message.expectedText ?? '')
       .trim()
       .toLowerCase();
@@ -28,7 +33,8 @@ chrome.runtime.onMessage.addListener(message => {
       const current = String(el.value ?? el.textContent ?? '')
         .trim()
         .toLowerCase();
-      if (expected.length > 0 && current === expected) {
+      const satisfied = mode === 'input' ? current.length > 0 : expected.length > 0 && current === expected;
+      if (satisfied) {
         chrome.runtime.sendMessage({ type: 'guide_target_matched', stepId }).catch(() => {
           // The background worker may already have moved on.
         });

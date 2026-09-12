@@ -5,8 +5,9 @@
  * actually happened, before letting the loop advance.
  *
  * v1 = Tier 2 only (structural, no LLM call, no per-tool API):
- *   - the user never acted (timeout)        -> NOT verified
- *   - typing step, value already matched     -> verified
+ *   - the user never acted (timeout)         -> NOT verified
+ *   - a 'value' or 'input' watch resolved     -> verified (the watcher itself
+ *     already confirmed the field's content, exactly or just non-empty)
  *   - the page navigated or visibly changed  -> verified
  *   - a click produced no detectable change  -> NOT verified
  *
@@ -36,17 +37,24 @@ export function verifyStep(params: {
   userActed: boolean;
   before: PageLike | null | undefined;
   after: PageLike | null | undefined;
+  /** Which watch mode resolved userActed — see guide-step.ts's GuideStepWatch. */
+  watchMode?: 'click' | 'value' | 'input';
 }): CheckResult {
-  const { actionName, userActed, before, after } = params;
+  const { userActed, before, after, watchMode } = params;
 
   if (!userActed) {
     return { verified: false, reason: 'no action was detected within the time limit' };
   }
 
-  // The typing watcher only resolves once the field value already matches the
-  // expected text, so a detected input_text step is verified by definition.
-  if (actionName === 'input_text') {
+  // A 'value'/'input' watch only resolves once the content-script listener has
+  // already confirmed the field's content (exact match, or just non-empty),
+  // so a detected match is verified by definition — no need to re-derive it
+  // from page structure.
+  if (watchMode === 'value') {
     return { verified: true, reason: 'typed text matches the expected value' };
+  }
+  if (watchMode === 'input') {
+    return { verified: true, reason: 'the field now has content' };
   }
 
   const beforeUrl = before?.url ?? '';

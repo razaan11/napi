@@ -298,13 +298,30 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           logger.info('🧭 GUIDE MODE — step for user:', nextGoal);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
 
-          // For an `input_text` step, advance when the field value matches the expected
-          // text; for every other step, advance on a real click.
+          // Pick how we'll know the user did this step:
+          //  - input_text with known text -> exact 'value' match (the model
+          //    knows what belongs here, e.g. filling in known form data).
+          //  - click_element targeting a text field -> 'input' — any
+          //    non-empty content counts. This covers free-form composing
+          //    (a LinkedIn post, an email body, ...) where the model has no
+          //    expected text to give. Without this, a click on an
+          //    already-focused field would never see a click event (the
+          //    user just types) and would time out despite the user doing
+          //    exactly the right thing — found testing on linkedin.com.
+          //  - everything else -> a real click.
           const stepArgs = (step[actionName] ?? {}) as Record<string, unknown>;
+          const targetNode = currentState?.selectorMap?.get(targetIndex);
+          const isTextField =
+            targetNode?.tagName === 'input' ||
+            targetNode?.tagName === 'textarea' ||
+            targetNode?.attributes?.contenteditable === 'true' ||
+            targetNode?.attributes?.role === 'textbox';
           const watch: GuideStepWatch =
             actionName === 'input_text' && typeof stepArgs.text === 'string'
               ? { mode: 'value', expectedText: stepArgs.text }
-              : { mode: 'click' };
+              : actionName === 'click_element' && isTextField
+                ? { mode: 'input' }
+                : { mode: 'click' };
 
           let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
 
@@ -330,13 +347,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           // Stage 3 — verify the intended outcome actually happened.
           // Reading the full page state rebuilds the DOM tree, which is slow on
           // big apps. Skip it whenever the verdict doesn't need it:
-          //   - the user never acted      -> not verified, no state needed
-          //   - an input_text value match -> already verified by the watcher
-          //   - the URL changed           -> verified by navigation (cheap tab read)
+          //   - the user never acted        -> not verified, no state needed
+          //   - a 'value'/'input' watch hit -> already verified by the watcher
+          //   - the URL changed             -> verified by navigation (cheap tab read)
           // Only a click that did NOT navigate needs the structural comparison.
           type AfterState = Parameters<typeof verifyStep>[0]['after'];
           let afterState: AfterState = null;
-          if (userActed && actionName !== 'input_text') {
+          if (userActed && watch.mode === 'click') {
             const beforeUrl = currentState?.url ?? '';
             let newUrl = '';
             try {
@@ -358,7 +375,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
               }
             }
           }
-          const check = verifyStep({ actionName, userActed, before: currentState, after: afterState });
+          const check = verifyStep({
+            actionName,
+            userActed,
+            before: currentState,
+            after: afterState,
+            watchMode: watch.mode,
+          });
 
           if (check.verified) {
             logger.info('🧭 CHECKER — verified:', check.reason);
@@ -585,12 +608,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
    * GUIDE MODE (napi): wait for the user to complete the spotlighted step.
    * Times out after 2 minutes.
    *
-   * The two watch modes need different success signals:
+   * The watch modes need different success signals:
    *  - 'click': either a real click on the target OR a URL change counts —
    *    a click that navigates might be observed via either path first.
-   *  - 'value' (typing): ONLY a genuine value match counts. Racing this
-   *    against a URL-change poll (like the click path does) would let an
-   *    unrelated navigation — the user backing out, a page redirect, an SPA
+   *  - 'value' (typing known text) / 'input' (typing anything): ONLY a
+   *    genuine field-content match counts. Racing this against a URL-change
+   *    poll (like the click path does) would let an unrelated navigation —
+   *    the user backing out, a page redirect, an SPA
    *    route change — get misreported as "the user typed the expected
    *    text", which the Checker then takes at face value (an input_text step
    *    is trusted as verified once userActed is true — see checker.ts). This
@@ -643,10 +667,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       let userActed: boolean;
       if (!guideStepMatch) {
         userActed = await waitForUrlChange();
-      } else if (watchMode === 'value') {
+      } else if (watchMode === 'value' || watchMode === 'input') {
         userActed = await Promise.race([
           guideStepMatch.promise.then(() => {
-            logger.info('🧭 GUIDE MODE — the spotlighted field matched the expected value');
+            logger.info(
+              watchMode === 'value'
+                ? '🧭 GUIDE MODE — the spotlighted field matched the expected value'
+                : '🧭 GUIDE MODE — the spotlighted field now has content',
+            );
             return true;
           }),
           waitForTimeout(),
