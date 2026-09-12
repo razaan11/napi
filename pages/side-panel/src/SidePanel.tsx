@@ -20,6 +20,7 @@ import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import MissionList from './components/MissionList';
+import CurrentStepCard from './components/CurrentStepCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
@@ -49,6 +50,18 @@ const SidePanel = () => {
   // napi Stage 6 — which mission (if any) is currently auto-running, and
   // which step it's on. Mirrored in a ref (below) for the port handler.
   const [runningMission, setRunningMission] = useState<{ id: string; stepIndex: number; totalSteps: number } | null>(
+    null,
+  );
+  // napi UI — the ONE thing to show prominently: what napi wants you to do
+  // right now, and whether your last try worked. Captured from the same
+  // Navigator events that already drive the chat log (STEP_OK's "👉 Your
+  // step:"/"✅ Done:" and STEP_FAIL's "⚠️ ..." — see navigator.ts) instead of
+  // adding new event types, so the backend stays untouched. This text was
+  // previously only reachable by reading the on-page spotlight itself —
+  // "👉 Your step" never actually rendered in the chat (STEP_OK skips
+  // appendMessage by default), so this card surfaces something that was
+  // genuinely missing, not just prettifying something already shown.
+  const [currentStep, setCurrentStep] = useState<{ status: 'waiting' | 'verified' | 'retry'; text: string } | null>(
     null,
   );
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
@@ -229,12 +242,14 @@ const SidePanel = () => {
             case ExecutionState.TASK_START:
               // Reset historical session flag when a new task starts
               setIsHistoricalSession(false);
+              setCurrentStep(null);
               break;
             case ExecutionState.TASK_OK:
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setCurrentStep(null);
               advanceMission();
               break;
             case ExecutionState.TASK_FAIL:
@@ -242,6 +257,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setCurrentStep(null);
               skip = false;
               stopMission();
               break;
@@ -250,6 +266,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setCurrentStep(null);
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
@@ -288,10 +305,18 @@ const SidePanel = () => {
               break;
             case ExecutionState.STEP_OK:
               displayProgress = false;
+              if (content?.startsWith('👉 Your step:')) {
+                setCurrentStep({ status: 'waiting', text: content.replace('👉 Your step:', '').trim() });
+              } else if (content?.startsWith('✅ Done:')) {
+                setCurrentStep({ status: 'verified', text: content.replace('✅ Done:', '').trim() });
+              }
               break;
             case ExecutionState.STEP_FAIL:
               skip = false;
               displayProgress = false;
+              if (content?.startsWith('⚠️')) {
+                setCurrentStep({ status: 'retry', text: content.replace(/^⚠️\s*/, '').trim() });
+              }
               break;
             case ExecutionState.STEP_CANCEL:
               displayProgress = false;
@@ -1240,11 +1265,13 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
-                {runningMission && (
-                  <div
-                    className={`px-3 py-1.5 text-xs font-medium ${isDarkMode ? 'bg-sky-900/60 text-sky-200' : 'bg-sky-50 text-sky-700'}`}>
-                    ▶️ Mission in progress — step {runningMission.stepIndex + 1} of {runningMission.totalSteps}
-                  </div>
+                {currentStep && (
+                  <CurrentStepCard
+                    status={currentStep.status}
+                    text={currentStep.text}
+                    missionProgress={runningMission}
+                    isDarkMode={isDarkMode}
+                  />
                 )}
                 {messages.length === 0 && (
                   <>
