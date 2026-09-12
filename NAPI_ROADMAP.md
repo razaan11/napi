@@ -100,8 +100,23 @@ type), `pages/content/src/index.ts` (the value listener now also satisfies on no
 `selectorMap`'s `tagName`/`contenteditable`/`role` — now watches in `input` mode instead of plain `click`;
 `waitForUserStep` and `verifyStep` both treat `input` the same as `value`).
 
-**Not yet re-verified live** — four real bugs found and fixed from one test case; retest the same
-LinkedIn task once more to confirm all four hold together on a fresh run.
+**Fifth bug found + fixed live (Sep 12), same LinkedIn retest:** a screenshot showed numbered highlight
+badges scattered across the background feed but NONE inside the actual post composer — Inspect confirmed
+the composer is a native `<dialog open>` element. Root cause: an open `<dialog>` shown via `showModal()`
+renders in the browser's "top layer", which sits above the ENTIRE document regardless of z-index — napi's
+highlight box is a single div appended to `document.body` with `zIndex: 2147483647`, which still cannot
+render above a top-layer dialog (the top layer is an architecturally separate stacking level, not just
+"very high z-index"). Elements outside the dialog's bounds highlighted fine since nothing covered them
+there. **Fixed** in `chrome-extension/public/buildDomTree.js`: `findHighlightParent()` walks up from the
+target element to the nearest open `<dialog>` ancestor, if any, and the (singleton) highlight container is
+reparented there instead of `document.body`, sharing the dialog's own top-layer context. **Not yet verified
+live**, and there's a known follow-up risk: if the dialog centers itself via a CSS `transform`, that
+establishes a new containing block for the container's `position: fixed`, which could offset the highlight
+box relative to the viewport-based coordinate math the rest of the code uses — confirm the box shows up in
+the RIGHT place on retest, not just that it shows up at all.
+
+**Not yet re-verified live** — five real bugs found and fixed from one test case; retest the same
+LinkedIn task once more to confirm all five hold together on a fresh run.
 
 **Also observed (not yet acted on):** the same run wasted 3 steps on "Frame with ID 624 is showing error
 page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
