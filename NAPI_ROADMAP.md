@@ -14,7 +14,7 @@ listed at the end and is NOT in scope yet.
 |---|---|---|
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
-| 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
+| 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Real bug found + fixed on linkedin.com (Sep 12): a value-watch step could be falsely "verified" by an unrelated URL change (see below). Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`) and **verified live** on example.com (Sep 11): click → URL change → `verified: the page navigated as expected`. Tiers 1 + 3, per-step `expected` spec, and calibration on a real flagship still to do |
 | Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below |
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
@@ -48,6 +48,20 @@ listed at the end and is NOT in scope yet.
   navigation) it runs the action via `doMultiAction` instead of guide-waiting — so `done` finishes
   the task instead of hanging 2 minutes. Verified.
 
+**Bug found + fixed live (Sep 12) — real-world test on linkedin.com:** the user asked "How do I post on
+LinkedIn" as a free-text goal (no mission — confirms ad hoc guide mode works on a real, complex site, not
+just test pages). It correctly spotlighted "Start a post", detected the click, navigated into the compose
+dialog, waited for it to load, then spotlighted the text box in `value` watch mode. While waiting for typed
+text to match, LinkedIn's own routing flipped the URL back to `/feed` (the modal closing/reverting for
+reasons unrelated to typing) — and `waitForUserStep()` raced `waitForUrlChange()` against the value-match
+promise **regardless of watch mode**, so that unrelated URL flip got treated as "the user acted", and the
+Checker then unconditionally reported `verified: typed text matches the expected value` even though no
+value match had actually happened. The guide loop advanced onto a page state that no longer existed, and
+the next step immediately hit `RequestCancelledError: Aborted`. **Fixed**: `waitForUserStep()` now takes
+the watch mode — `'value'` steps only ever resolve on a genuine value match (with their own timeout, no
+URL race at all); `'click'` steps keep racing both, since a click can legitimately cause navigation. Also
+resolves the old cosmetic note below (a value match now logs its own distinct message).
+
 **Optional refinements (not blocking; do later if a real mission needs them):**
 - **Generic local DOM-change** detection for controls where a click alone isn't the completion signal
   (e.g. an expander whose `aria-expanded` flips on a different node). Add a `mode: 'dom'` with a
@@ -55,7 +69,6 @@ listed at the end and is NOT in scope yet.
 - **`go_to_url`** currently runs via fix A (the extension navigates for the user). For a true
   guide-only experience, detect `go_to_url` and instead show "navigate to X yourself" + wait for the
   URL change.
-- Cosmetic: `waitForUserStep` logs "user clicked the spotlighted element" even on a value match.
 
 ---
 
