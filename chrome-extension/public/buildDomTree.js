@@ -134,6 +134,26 @@ window.buildDomTree = (
    * @param {HTMLElement | null} parentIframe - The parent iframe node.
    * @returns {number} The index of the next element.
    */
+  // napi: a native <dialog> shown open renders in the browser's "top layer",
+  // which sits above the ENTIRE normal document regardless of z-index — so a
+  // highlight box appended to document.body can never visually appear on top
+  // of one, no matter how high its z-index is set. Found testing on
+  // linkedin.com: its post composer is a real <dialog open>, and every
+  // highlight badge rendered behind it, invisible, while background elements
+  // (not covered by the dialog) still highlighted normally. Fix: find the
+  // nearest open <dialog> ancestor, if any, and put the highlight container
+  // there instead, so it shares the same top-layer context.
+  function findHighlightParent(element) {
+    let node = element;
+    while (node) {
+      if (node.tagName === 'DIALOG' && node.hasAttribute('open')) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return document.body;
+  }
+
   function highlightElement(element, index, parentIframe = null) {
     if (!element) return index;
 
@@ -147,6 +167,8 @@ window.buildDomTree = (
     let cleanupFn = null;
 
     try {
+      const highlightParent = findHighlightParent(element);
+
       // Create or get highlight container
       let container = document.getElementById(HIGHLIGHT_CONTAINER_ID);
       if (!container) {
@@ -163,7 +185,13 @@ window.buildDomTree = (
         container.style.backgroundColor = 'transparent';
         // Show or hide the container based on the showHighlightElements flag
         container.style.display = showHighlightElements ? 'block' : 'none';
-        document.body.appendChild(container);
+        highlightParent.appendChild(container);
+      } else if (container.parentElement !== highlightParent) {
+        // The element being highlighted has moved in/out of a dialog since
+        // the container was created — reparent it (this MOVES the existing
+        // node, it doesn't duplicate it) so it keeps sharing the right
+        // top-layer context.
+        highlightParent.appendChild(container);
       }
 
       // Get element client rects
