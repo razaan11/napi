@@ -14,7 +14,7 @@ listed at the end and is NOT in scope yet.
 |---|---|---|
 | 0 | Setup + understand the codebase | DONE |
 | 1 | Guide mode: intercept action, show step, spotlight element, auto/guide toggle | DONE — `guideMode` setting in General Settings; verified ON guides / OFF auto-runs |
-| 2 | Pause & wait, detect the user's action | DONE — URL-change + trusted-click + typing/value-match detection + no-target "task complete" handling, all committed + verified. Real bug found + fixed on linkedin.com (Sep 12): a value-watch step could be falsely "verified" by an unrelated URL change (see below). Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
+| 2 | Pause & wait, detect the user's action | DONE — **verified live end-to-end on linkedin.com (Sep 12)**: a real free-text goal ("guide me to post on LinkedIn"), no mission, completed a real publish after 5 distinct bugs found + fixed on that one test case (see below). Optional refinements left: generic DOM-change detection; guiding manual `go_to_url` instead of auto-navigating |
 | 3 | The Checker (verification) | Tier 2 DONE (commit `38e4a27`) and **verified live** on example.com (Sep 11): click → URL change → `verified: the page navigated as expected`. Tiers 1 + 3, per-step `expected` spec, and calibration on a real flagship still to do |
 | Perf | Big-page performance pass (model retry cap, fewer Planner calls, lighter Checker read) | DONE and **verified live** — see below |
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
@@ -115,8 +115,15 @@ establishes a new containing block for the container's `position: fixed`, which 
 box relative to the viewport-based coordinate math the rest of the code uses — confirm the box shows up in
 the RIGHT place on retest, not just that it shows up at all.
 
-**Not yet re-verified live** — five real bugs found and fixed from one test case; retest the same
-LinkedIn task once more to confirm all five hold together on a fresh run.
+**✅ Verified live (Sep 12) — full success.** Retested `guide me to post on LinkedIn` fresh: spotlighted
+"Start a post" → clicked → verified; spotlighted the Post button (now correctly highlighted inside the
+`<dialog>`) → clicked → verified (`the page navigated as expected`, URL back at `/feed`) → real published
+post. First fully successful free-text-guided real-world task on a genuinely hard site, after five distinct
+bugs found and fixed from this one test case. The Post button did need 4 spotlight attempts before the
+click registered (3 timeouts first) — most likely a testing-workflow artifact (switching between the page
+and pasting logs eats the 2-minute window) rather than a new bug, since detection worked cleanly once
+actually clicked; timeout length (currently 120s) is a deliberate first-time-user-friendly default, left
+as-is for now — revisit if this pattern recurs outside of testing.
 
 **Also observed (not yet acted on):** the same run wasted 3 steps on "Frame with ID 624 is showing error
 page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
