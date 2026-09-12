@@ -3,15 +3,16 @@ import '@src/Options.css';
 import { Button } from '@extension/ui';
 import { withErrorBoundary, withSuspense } from '@extension/shared';
 import { t } from '@extension/i18n';
-import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiAward, FiRepeat, FiHelpCircle } from 'react-icons/fi';
+import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiAward, FiRepeat, FiBookOpen, FiHelpCircle } from 'react-icons/fi';
 import { GeneralSettings } from './components/GeneralSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { FirewallSettings } from './components/FirewallSettings';
 import { AnalyticsSettings } from './components/AnalyticsSettings';
 import { SkillMap } from './components/SkillMap';
 import { FallbackModels } from './components/FallbackModels';
+import { Missions } from './components/Missions';
 
-type TabTypes = 'general' | 'models' | 'fallback' | 'firewall' | 'analytics' | 'skills' | 'help';
+type TabTypes = 'general' | 'models' | 'fallback' | 'firewall' | 'analytics' | 'skills' | 'missions' | 'help';
 
 const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
@@ -20,6 +21,7 @@ const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; l
   { id: 'firewall', icon: FiShield, label: t('options_tabs_firewall') },
   { id: 'analytics', icon: FiTrendingUp, label: 'Analytics' },
   { id: 'skills', icon: FiAward, label: 'Skills' },
+  { id: 'missions', icon: FiBookOpen, label: 'Missions' },
   { id: 'help', icon: FiHelpCircle, label: t('options_tabs_help') },
 ];
 
@@ -62,6 +64,8 @@ const Options = () => {
         return <AnalyticsSettings isDarkMode={isDarkMode} />;
       case 'skills':
         return <SkillMap isDarkMode={isDarkMode} />;
+      case 'missions':
+        return <Missions isDarkMode={isDarkMode} />;
       default:
         return null;
     }

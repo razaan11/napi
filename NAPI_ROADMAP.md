@@ -20,7 +20,7 @@ listed at the end and is NOT in scope yet.
 | 4 | Skill Map | DONE (v1) — storage + hook-in + minimal Options UI. Real "unaided" path needs Stage 6 missions |
 | Perf | Model-fallback chain (pulled forward from Stage 7) | DONE (v1) — see below |
 | 5 | Recovery | DONE (v1) — calmer, state-aware messages for timeout vs dead-click. Real LLM-diagnosed recovery needs Stage 6 |
-| 6 | Missions for one flagship tool | NOT STARTED |
+| 6 | Missions for one flagship tool | DONE (v1) — 1 hand-authored Notion mission, read-only Options UI. No mission runner / unaided challenge / OAuth / LLM picker yet |
 | UI | Side panel redesign | NOT STARTED |
 | 7 | Polish + first users | NOT STARTED |
 
@@ -291,25 +291,40 @@ redirect (not just a calmer generic one). Revisit once Stage 6 mission templates
 
 ---
 
-## Stage 6 — Missions for one flagship tool
+## Stage 6 — Missions for one flagship tool  **[v1 DONE]**
 
-**Goal:** real, hand-authored lessons for ONE web app.
+**Goal:** real, hand-authored lessons for ONE web app. **Flagship chosen: Notion.**
 
-**Tasks:**
-- Pick the flagship. Recommended: **Notion** (has a public API for Tier 1 checking; large beginner
-  audience).
-- Mission/step template format:
-  `{ instruction, targetDescriptor, why, verification: expected, knownWrongStates: [{ match, recoveryText }] }`.
-- Author 3-5 missions (Notion example: create a page, create a database, add a view, share a page,
-  use a template).
-- Each mission ends with an **unaided challenge**, verified by the Checker.
-- Add OAuth to the flagship for Tier 1 checks (read-mostly scopes).
-- Mission planner: an LLM maps a user goal to a mission and orders the step templates, checking the
-  Skill Map to skip already-mastered skills. The LLM chooses the path; it does NOT invent
-  verification logic.
+Done + committed — the "just author real missions, no new mechanics" scope:
+- `pages/options/src/missions.ts` — a `Mission { id, tool, title, description, steps: { instruction, why }[] }`
+  type (simpler than the original `{ instruction, targetDescriptor, why, verification, knownWrongStates }`
+  sketch — no `verification`/`knownWrongStates` fields yet since there's no runner to consume them). One
+  authored mission: **"Create a new page in Notion"**, 3 steps.
+- `pages/options/src/components/Missions.tsx` — new **Missions** tab in Options: shows the mission, each
+  step's instruction + its "why", and a Copy button per step.
+- **Deliberately not a new execution mechanism.** "Running" a mission today means: turn on Guide mode, open
+  Notion, copy each step from this tab into the chat in order, and do it when spotlighted. Every step goes
+  through the exact same guide loop, Tier-2 Checker, Recovery messaging, and Skill Map recording as any
+  other guided task — zero new runtime code, zero new risk. This was the deliberate trade for shipping
+  something real today instead of a bigger, riskier "mission runner" rebuild.
+- Step wording is a **first draft** based on Notion's known web UI (the sidebar "+ New page" control,
+  etc.) — not verified against a live Notion account this session (would need real login). Validate/tune
+  it the same way every other feature here got tested: run it, see what breaks, fix the wording.
 
-**Done when:** 3-5 missions run start to finish reliably, including the unaided challenge and the
-skill-map update.
+**Not done (real Stage 6 v2, in priority order):**
+1. **A mission runner** — feed these steps to the Executor automatically instead of the user retyping each
+   line. This is what turns "a lesson plan you read" into "a lesson napi walks you through."
+2. **The unaided challenge** — a "no hints" mode for a mission's last step (don't spotlight, just verify)
+   that's what actually unlocks a Skill Map skill's `unaided` status via `recordUnaidedSuccess`. Currently
+   impossible — nothing calls that function yet.
+3. **Tier-1 verification via Notion's API** (OAuth, read-mostly scopes) instead of only the on-page Checker.
+4. **An LLM mission-picker** that maps a free-text goal to the right mission and skips steps the Skill Map
+   already shows as mastered.
+5. 3-4 more missions (database, share, template) once the runner exists — hand-typing more than one
+   mission isn't worth it before step 1 above is built.
+
+**Done when (original bar, not yet met):** 3-5 missions run start to finish automatically, including the
+unaided challenge and skill-map update. v1 proves the content is real and testable; the automation is next.
 
 ---
 

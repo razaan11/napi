@@ -328,6 +328,31 @@ something, i.e. a mission template). v1 is a calm, generic placeholder, not
 the specific redirect the original Stage 5 spec describes — flagged honestly
 in the roadmap rather than marked fully done.
 
+### Stage 6 — Missions (v1)  **[DONE, committed]**
+
+Flagship chosen: **Notion**. Scope: author real mission content using the guide loop as-is, no new
+execution mechanics — a deliberate trade to ship something real today.
+
+- `pages/options/src/missions.ts` — `Mission { id, tool, title, description, steps: { instruction, why }[] }`.
+  One authored mission, `notion-create-a-page`, 3 steps. Lives in the `options` page's own workspace (not
+  `chrome-extension/src`) since it's pure display data for now and adding a new shared `packages/` workspace
+  just for this would be a bigger structural change than this v1 warrants — a real mission runner (Stage 6
+  v2) can relocate/import this when it exists.
+- `pages/options/src/components/Missions.tsx` — new **Missions** tab: shows the mission, its steps'
+  instruction + why, and a per-step Copy button (`navigator.clipboard.writeText`).
+- **"Running" a mission today = manual**: turn on Guide mode, open Notion, copy each step into the chat in
+  order, do it when spotlighted. Every step is just an ordinary guided task — same Checker, same Recovery
+  messages, same Skill Map recording (`tool: 'www.notion.so'`) as anything else typed into the chat. Zero
+  new runtime code.
+- Step wording is a first draft from Notion's known web UI (sidebar "+ New page", etc.) — **not verified
+  against a live Notion account this session** (would need real login). Needs the same test-then-fix pass
+  every other feature here got.
+
+**Not done (Stage 6 v2, in priority order):** an automatic mission runner (feed steps to the Executor
+instead of retyping them), the end-of-mission unaided challenge (nothing calls `recordUnaidedSuccess` yet),
+Tier-1 verification via Notion's API (OAuth), an LLM mission-picker, and 3-4 more missions (not worth
+authoring until the runner exists).
+
 ## 5. Current behaviour (guide mode is always on)
 
 Per Navigator step: LLM decides -> guide branch runs. If the action has no target element index
