@@ -62,6 +62,22 @@ the watch mode — `'value'` steps only ever resolve on a genuine value match (w
 URL race at all); `'click'` steps keep racing both, since a click can legitimately cause navigation. Also
 resolves the old cosmetic note below (a value match now logs its own distinct message).
 
+**Second bug found + fixed live (Sep 12), same LinkedIn test:** on retry, the value-watch fix above worked
+(no false verify) — but the Planner declared the whole task `done` the moment the Navigator opened the
+post composer, describing "type your content, then click Post" as prose in `final_answer` instead of
+continuing to guide the user through them. Root cause: the Planner's prompt is identical in guide mode and
+auto mode, and treats "the right screen is reachable" as good enough for `done: true` — correct for
+autonomous auto mode, wrong for guide mode where a human still has to perform the remaining actions.
+**Fixed** in `chrome-extension/src/background/agent/prompts/{templates/planner.ts,planner.ts}` +
+`executor.ts`: `PlannerPrompt` now takes a `guideMode` flag and appends an addendum telling it not to mark
+multi-step goals done until the real-world outcome is achieved, and to keep emitting `next_steps` (which
+the Navigator turns into spotlighted actions) instead of handing off the rest as an instructions list.
+Auto mode's prompt is untouched. **Not yet re-verified live** — retest the same LinkedIn task next.
+
+**Also observed (not yet acted on):** the same run wasted 3 steps on "Frame with ID 624 is showing error
+page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
+when the task started. Minor overhead, not chased further this session; revisit if it recurs.
+
 **Optional refinements (not blocking; do later if a real mission needs them):**
 - **Generic local DOM-change** detection for controls where a click alone isn't the completion signal
   (e.g. an expander whose `aria-expanded` flips on a different node). Add a `mode: 'dom'` with a
