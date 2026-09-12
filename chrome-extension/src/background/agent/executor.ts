@@ -69,7 +69,7 @@ export class Executor {
 
     this.generalSettings = extraArgs?.generalSettings;
     this.tasks.push(task);
-    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
+    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, context.options.guideMode);
     this.plannerPrompt = new PlannerPrompt(context.options.guideMode);
 
     const actionBuilder = new ActionBuilder(context, extractorLLM);

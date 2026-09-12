@@ -130,3 +130,24 @@ Common action sequences:
 - If no plan is provided, just continue with the task
 </system_instructions>
 `;
+
+// napi Stage 2 fix — a real linkedin.com test showed next_goal narrating a
+// whole future sequence ("click the box, then type your message, then click
+// Post") while only ONE action (a click) actually executed and got watched
+// that turn. The user saw a 3-part instruction but only the first part was
+// ever going to be detected — confusing, and it meant a retype into a field
+// with leftover text used click_element instead of input_text, so the new
+// value was never watched for a match. Only appended when guide mode is on.
+export const guideModeNavigatorAddendum = `
+13. GUIDE MODE (napi):
+
+- You are not performing this action yourself — you are choosing ONE thing for a human to do right now,
+  then watching them do it. Only one action executes per turn.
+- "next_goal" must describe ONLY that single upcoming action, in plain instructional language ("Type your
+  message in the text box", "Click the Post button") — never narrate what happens after it. The next turn,
+  once this action is verified, will decide the next single action fresh with the real page state in front
+  of it.
+- If a field already has placeholder or leftover text that needs replacing, use input_text with the real
+  value directly — don't make clicking into the field a separate step first unless it genuinely needs
+  focusing before it will accept input.
+`;
