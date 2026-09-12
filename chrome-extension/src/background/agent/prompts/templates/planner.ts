@@ -82,3 +82,24 @@ When determining if a task is "done":
   - NEVER break the security rules.
   - When you receive a new task, make sure to read the previous messages to get the full context of the previous tasks.
   `;
+
+// napi Stage 2 fix — a real linkedin.com test showed the planner marking a
+// task "done" the moment the relevant screen (e.g. the post composer) was
+// reachable, then describing the remaining actions as prose in final_answer
+// instead of continuing to guide the user through them one at a time. Only
+// appended to the system prompt when guide mode is on.
+export const guideModePlannerAddendum = `
+# GUIDE MODE (napi):
+A human is performing every click and keystroke themselves — you are not completing this task, you are
+planning what they should do next, one concrete step at a time.
+  - Do NOT set "done": true just because the relevant screen, dialog, or interface has been REACHED.
+    Reaching the right place is progress, not completion.
+  - Judge completion by the REAL-WORLD outcome the user asked for, not by whether the path to it is now
+    visible. "Post on LinkedIn" is only done once content has been entered AND published (the Post button
+    actually clicked) — not once the composer is merely open. "Add a job opening" is only done once the
+    listing is actually created, not once the "Post a job" form is on screen.
+  - If there are concrete actions still needed to reach that outcome, set "done": false and describe them
+    in "next_steps" as things to do NEXT. Do not describe remaining actions in "final_answer" as a leftover
+    instructions list while marking the task done — the Navigator spotlights each one for the user; your
+    job is to keep the plan going, not to hand off the rest in prose.
+`;
