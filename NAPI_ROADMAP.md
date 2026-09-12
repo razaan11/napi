@@ -421,20 +421,36 @@ Still open: the unaided challenge and skill-map update at the end of a mission, 
 
 ---
 
-## UI stage — side panel redesign
+## UI stage — side panel redesign  **[v1 started, Sep 12]**
 
-**Goal:** make the panel feel like a tutor, not a chat log. Do this AFTER Stage 3 so the data shape
-is known.
+**Goal:** make the panel feel like a tutor, not a chat log.
 
-**Tasks (`pages/side-panel/src/`):**
-- Current-step card: large instruction, the target's name, a "Why?" expander.
-- Progress indicator: "Step 3 of 7".
-- States: "waiting for you...", verified check, recovery message.
-- Skill Map view (its own tab).
-- New event types from the background: `SHOW_STEP`, `STEP_VERIFIED`, `SHOW_RECOVERY`,
-  `SKILL_UPDATED`. Keep the existing port plumbing; change what renders.
+User asked for this "simple" — v1 is deliberately small: one new card, zero new event types, zero
+backend changes, reusing exactly what `navigator.ts` already emits.
 
-**Done when:** a first-time user understands what to do without reading a chat transcript.
+Done + committed:
+- **Current-step card** (`pages/side-panel/src/components/CurrentStepCard.tsx`) — one card, one status
+  (waiting / verified / retry) with an icon + color, the instruction text, and a "Step X of Y" line when a
+  mission is running. Replaces the old one-line mission-progress banner.
+- Populated directly inside `SidePanel.tsx`'s existing `handleTaskState` (`Actors.NAVIGATOR` switch) by
+  matching the `👉 Your step:` / `✅ Done:` / `⚠️ ...` prefixes already in the emitted text — no new event
+  types, no `SHOW_STEP`/`STEP_VERIFIED`/etc.
+- **Real bug found in the process**: `👉 Your step:` (`STEP_OK` for the Navigator actor) was never actually
+  rendered in the chat at all — `handleTaskState` leaves `skip = true` for that case by default. Users were
+  being guided ONLY by the on-page spotlight, with no confirming text anywhere in the panel. The new card
+  surfaces information that was genuinely missing, not just a prettier version of something already shown.
+
+**Not done (still matches the original task list):**
+- A "Why?" expander — no "why" text exists for ad hoc free-text tasks today (only missions have one, shown
+  in the Options reference view, not inline during a live guided step).
+- A true "Step X of Y" for free-text tasks — only missions know their total step count in advance; an
+  ad hoc goal's plan isn't fixed upfront, so there's nothing to count against yet.
+- A Skill Map view inside the side panel itself — it exists in Options (Stage 4) and wasn't duplicated
+  here, to keep this pass small.
+
+**Done when:** a first-time user understands what to do without reading a chat transcript. Closer than
+before (the single most important text is now front-and-center, not the case that it never rendered at
+all) — not fully there without the "why" and real progress-count pieces above.
 
 ---
 
