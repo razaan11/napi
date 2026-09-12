@@ -1,6 +1,6 @@
 /* Add this at the top of the file */
 body {
-  border-color: rgb(159, 6, 11) !important; /* sky-200 color */
+  border-color: rgb(159, 6, 11) !important; /* yellow-200 color */
 }
 
 /* Remove unused classes: .App, .App-logo, .App-header */
@@ -30,7 +30,7 @@ code {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #0ea5e9;
+  background: #eab308;
   border-radius: 4px;
 }
 
@@ -45,7 +45,7 @@ code {
   }
   
   ::-webkit-scrollbar-thumb {
-    background: #0ea5e9;
+    background: #eab308;
   }
   
   ::-webkit-scrollbar-thumb:hover {
@@ -122,16 +122,16 @@ code {
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-track {
-  background: #f1f5f9;  /* sky-50 */
+  background: #f1f5f9;  /* yellow-50 */
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-thumb {
-  background: #7dd3fc;  /* sky-300 - very light blue */
+  background: #7dd3fc;  /* yellow-300 - very light blue */
   border-radius: 4px;
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
-  background: #38bdf8;  /* sky-400 - slightly darker on hover */
+  background: #38bdf8;  /* yellow-400 - slightly darker on hover */
 }
 
 /* Dark mode scrollbar for scrollbar-gutter-stable */
@@ -141,11 +141,11 @@ code {
   }
   
   .scrollbar-gutter-stable::-webkit-scrollbar-thumb {
-    background: #0ea5e9;  /* sky-500 */
+    background: #eab308;  /* yellow-500 */
   }
   
   .scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
-    background: #38bdf8;  /* sky-400 */
+    background: #38bdf8;  /* yellow-400 */
   }
 }
 

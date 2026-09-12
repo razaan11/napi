@@ -17,9 +17,9 @@ const STATUS_META: Record<
   waiting: {
     icon: '👉',
     label: 'Your turn',
-    light: 'bg-sky-50 text-sky-900',
-    dark: 'bg-sky-900/40 text-sky-100',
-    border: 'border-sky-400',
+    light: 'bg-yellow-50 text-yellow-900',
+    dark: 'bg-yellow-900/40 text-yellow-100',
+    border: 'border-yellow-400',
   },
   verified: {
     icon: '✅',

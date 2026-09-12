@@ -21,6 +21,7 @@ import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import MissionList from './components/MissionList';
 import CurrentStepCard from './components/CurrentStepCard';
+import NapiLogo from './components/NapiLogo';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
@@ -64,6 +65,11 @@ const SidePanel = () => {
   const [currentStep, setCurrentStep] = useState<{ status: 'waiting' | 'verified' | 'retry'; text: string } | null>(
     null,
   );
+  // napi UI — "explain first, then offer to guide" like a chatbot: a typed
+  // request gets answered with a written plan (no page interaction yet);
+  // this holds that original ask while we wait to see if the user wants
+  // napi to actually walk them through it.
+  const [pendingGuideTask, setPendingGuideTask] = useState<string | null>(null);
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
   const [isFollowUpMode, setIsFollowUpMode] = useState(false);
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
@@ -258,6 +264,7 @@ const SidePanel = () => {
               setShowStopButton(false);
               setIsReplaying(false);
               setCurrentStep(null);
+              setPendingGuideTask(null);
               skip = false;
               stopMission();
               break;
@@ -266,6 +273,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setPendingGuideTask(null);
               setCurrentStep(null);
               skip = false;
               break;
@@ -283,9 +291,12 @@ const SidePanel = () => {
         case Actors.PLANNER:
           switch (state) {
             case ExecutionState.STEP_START:
-              displayProgress = true;
+              // napi: no "Planning..." progress bubble — the plan itself
+              // (STEP_OK below) is the useful part; the "running" indicator
+              // is exactly the loop noise the user asked to hide.
               break;
             case ExecutionState.STEP_OK:
+              // Keep visible: this IS "the steps" shown before guiding starts.
               skip = false;
               break;
             case ExecutionState.STEP_FAIL:
@@ -301,10 +312,10 @@ const SidePanel = () => {
         case Actors.NAVIGATOR:
           switch (state) {
             case ExecutionState.STEP_START:
-              displayProgress = true;
+              // napi: no "Navigating..." progress bubble — same reasoning as
+              // the Planner above.
               break;
             case ExecutionState.STEP_OK:
-              displayProgress = false;
               if (content?.startsWith('👉 Your step:')) {
                 setCurrentStep({ status: 'waiting', text: content.replace('👉 Your step:', '').trim() });
               } else if (content?.startsWith('✅ Done:')) {
@@ -312,25 +323,26 @@ const SidePanel = () => {
               }
               break;
             case ExecutionState.STEP_FAIL:
-              skip = false;
-              displayProgress = false;
+              // Not appended to the chat log (skip stays true) — the
+              // CurrentStepCard already shows this clearly; a duplicate chat
+              // bubble is exactly the "navigator loop" noise being hidden.
               if (content?.startsWith('⚠️')) {
                 setCurrentStep({ status: 'retry', text: content.replace(/^⚠️\s*/, '').trim() });
               }
               break;
             case ExecutionState.STEP_CANCEL:
-              displayProgress = false;
               break;
             case ExecutionState.ACT_START:
-              if (content !== 'cache_content') {
-                // skip to display caching content
-                skip = false;
-              }
+              // napi: never shown — this is the per-action "intent" narration
+              // (e.g. "Wait for X to load"). The CurrentStepCard is the single
+              // place step-level status shows now; this was the rest of the
+              // "navigator loop" chatter.
               break;
             case ExecutionState.ACT_OK:
               skip = !isReplayingRef.current;
               break;
             case ExecutionState.ACT_FAIL:
+              // Kept visible — a real error, not routine narration.
               skip = false;
               break;
             default:
@@ -761,6 +773,37 @@ const SidePanel = () => {
     await handleSendMessage(mission.steps[0].instruction);
   };
 
+  // napi UI — "explain first, then offer to guide", like a chatbot: typing a
+  // request gets a written plan back with no page interaction, then a button
+  // to actually start being guided through it. This is what the ChatInput
+  // calls now instead of handleSendMessage directly; commands ('/...') skip
+  // straight through unwrapped, and the mission runner above bypasses this
+  // entirely (it already has its own explicit Start button + known steps).
+  const handleUserSubmit = async (text: string, displayText?: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith('/')) {
+      await handleSendMessage(text, displayText);
+      return;
+    }
+
+    setPendingGuideTask(trimmed);
+    await handleSendMessage(
+      `${trimmed}\n\n(First just explain the steps in plain language — don't click, type, or interact ` +
+        `with the page yet. I'll say when to start.)`,
+      displayText ?? trimmed,
+    );
+  };
+
+  // Called when the user clicks "Start guiding me" after reading the plan.
+  const handleStartGuiding = async () => {
+    const task = pendingGuideTask;
+    if (!task) return;
+    setPendingGuideTask(null);
+    await handleSendMessage(`Now actually guide me through it, step by step: ${task}`, 'Start guiding me through this');
+  };
+
   const handleStopTask = async () => {
     try {
       portRef.current?.postMessage({
@@ -788,6 +831,8 @@ const SidePanel = () => {
     setShowStopButton(false);
     setIsFollowUpMode(false);
     setIsHistoricalSession(false);
+    setCurrentStep(null);
+    setPendingGuideTask(null);
 
     // Disconnect any existing connection
     stopConnection();
@@ -1120,14 +1165,14 @@ const SidePanel = () => {
   return (
     <div>
       <div
-        className={`flex h-screen flex-col ${isDarkMode ? 'bg-slate-900' : "bg-[url('/bg.jpg')] bg-cover bg-no-repeat"} overflow-hidden border ${isDarkMode ? 'border-sky-800' : 'border-[rgb(186,230,253)]'} rounded-2xl`}>
+        className={`flex h-screen flex-col ${isDarkMode ? 'bg-slate-900' : "bg-[url('/bg.jpg')] bg-cover bg-no-repeat"} overflow-hidden border ${isDarkMode ? 'border-yellow-800' : 'border-[rgb(186,230,253)]'} rounded-2xl`}>
         <header className="header relative">
           <div className="header-logo">
             {showHistory ? (
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                className={`${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
@@ -1135,12 +1180,12 @@ const SidePanel = () => {
               <button
                 type="button"
                 onClick={() => setShowMissions(false)}
-                className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                className={`${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
             ) : (
-              <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
+              <NapiLogo className="size-6" />
             )}
           </div>
           <div className="header-icons">
@@ -1150,7 +1195,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className={`header-icon ${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
                   aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
                   <PiPlusBold size={20} />
@@ -1159,7 +1204,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className={`header-icon ${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={20} />
@@ -1168,7 +1213,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={() => setShowMissions(true)}
                   onKeyDown={e => e.key === 'Enter' && setShowMissions(true)}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className={`header-icon ${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
                   aria-label="Missions"
                   tabIndex={0}>
                   <FiBookOpen size={20} />
@@ -1179,14 +1224,14 @@ const SidePanel = () => {
               href="https://discord.gg/NN3ABHggMK"
               target="_blank"
               rel="noopener noreferrer"
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'}`}>
+              className={`header-icon ${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'}`}>
               <RxDiscordLogo size={20} />
             </a>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+              className={`header-icon ${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-400 hover:text-yellow-500'} cursor-pointer`}
               aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
               <FiSettings size={20} />
@@ -1216,9 +1261,9 @@ const SidePanel = () => {
             {/* Show loading state while checking model configuration */}
             {hasConfiguredModels === null && (
               <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
+                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>
                 <div className="text-center">
-                  <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></div>
+                  <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent"></div>
                   <p>{t('status_checkingConfig')}</p>
                 </div>
               </div>
@@ -1227,17 +1272,19 @@ const SidePanel = () => {
             {/* Show setup message when no models are configured */}
             {hasConfiguredModels === false && (
               <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
+                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>
                 <div className="max-w-md text-center">
-                  <img src="/icon-128.png" alt="Nanobrowser Logo" className="mx-auto mb-4 size-12" />
-                  <h3 className={`mb-2 text-lg font-semibold ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
+                  <NapiLogo className="mx-auto mb-4 size-12" />
+                  <h3 className={`mb-2 text-lg font-semibold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>
                     {t('welcome_title')}
                   </h3>
                   <p className="mb-4">{t('welcome_instruction')}</p>
                   <button
                     onClick={() => chrome.runtime.openOptionsPage()}
                     className={`my-4 rounded-lg px-4 py-2 font-medium transition-colors ${
-                      isDarkMode ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-sky-500 text-white hover:bg-sky-600'
+                      isDarkMode
+                        ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                        : 'bg-yellow-500 text-white hover:bg-yellow-600'
                     }`}>
                     {t('welcome_openSettings')}
                   </button>
@@ -1246,7 +1293,7 @@ const SidePanel = () => {
                       href="https://github.com/nanobrowser/nanobrowser?tab=readme-ov-file#-quick-start"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                      className={`${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-700 hover:text-yellow-600'}`}>
                       {t('welcome_quickStart')}
                     </a>
                     <span className="mx-2">•</span>
@@ -1254,7 +1301,7 @@ const SidePanel = () => {
                       href="https://discord.gg/NN3ABHggMK"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                      className={`${isDarkMode ? 'text-yellow-400 hover:text-yellow-300' : 'text-yellow-700 hover:text-yellow-600'}`}>
                       {t('welcome_joinCommunity')}
                     </a>
                   </div>
@@ -1273,12 +1320,23 @@ const SidePanel = () => {
                     isDarkMode={isDarkMode}
                   />
                 )}
+                {pendingGuideTask && inputEnabled && (
+                  <div
+                    className={`px-4 py-3 ${isDarkMode ? 'bg-slate-800' : 'bg-white'} border-b ${isDarkMode ? 'border-slate-700' : 'border-gray-100'}`}>
+                    <button
+                      type="button"
+                      onClick={handleStartGuiding}
+                      className={`w-full rounded-lg px-4 py-2 text-sm font-semibold text-gray-900 ${isDarkMode ? 'bg-yellow-500 hover:bg-yellow-400' : 'bg-yellow-400 hover:bg-yellow-300'}`}>
+                      ▶ Start guiding me through this
+                    </button>
+                  </div>
+                )}
                 {messages.length === 0 && (
                   <>
                     <div
-                      className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} mb-2 p-2 shadow-sm backdrop-blur-sm`}>
+                      className={`border-t ${isDarkMode ? 'border-yellow-900' : 'border-yellow-100'} mb-2 p-2 shadow-sm backdrop-blur-sm`}>
                       <ChatInput
-                        onSendMessage={handleSendMessage}
+                        onSendMessage={handleUserSubmit}
                         onStopTask={handleStopTask}
                         onMicClick={handleMicClick}
                         isRecording={isRecording}
@@ -1314,9 +1372,9 @@ const SidePanel = () => {
                 )}
                 {messages.length > 0 && (
                   <div
-                    className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} p-2 shadow-sm backdrop-blur-sm`}>
+                    className={`border-t ${isDarkMode ? 'border-yellow-900' : 'border-yellow-100'} p-2 shadow-sm backdrop-blur-sm`}>
                     <ChatInput
-                      onSendMessage={handleSendMessage}
+                      onSendMessage={handleUserSubmit}
                       onStopTask={handleStopTask}
                       onMicClick={handleMicClick}
                       isRecording={isRecording}

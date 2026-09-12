@@ -36,7 +36,7 @@ const MissionList = ({ missions, runningMissionId, onStart, isDarkMode = false }
                   type="button"
                   disabled={isRunning || (runningMissionId !== null && !isRunning)}
                   onClick={() => onStart(mission)}
-                  className={`mt-2 rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${isDarkMode ? 'bg-sky-700 hover:bg-sky-600' : 'bg-sky-500 hover:bg-sky-600'}`}>
+                  className={`mt-2 rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${isDarkMode ? 'bg-yellow-700 hover:bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
                   {isRunning ? 'Running…' : 'Start mission'}
                 </button>
               </div>

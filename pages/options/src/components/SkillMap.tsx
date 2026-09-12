@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<SkillStatus, string> = {
 
 const STATUS_COLOR: Record<SkillStatus, string> = {
   'not-started': 'bg-gray-200 text-gray-700',
-  guided: 'bg-blue-100 text-blue-700',
+  guided: 'bg-yellow-100 text-yellow-700',
   unaided: 'bg-green-100 text-green-700',
   rusty: 'bg-amber-100 text-amber-700',
 };
@@ -54,7 +54,7 @@ export const SkillMap = ({ isDarkMode = false }: SkillMapProps) => {
   return (
     <section className="space-y-6">
       <div
-        className={`rounded-lg border ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-blue-100 bg-white'} p-6 text-left shadow-sm`}>
+        className={`rounded-lg border ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-yellow-100 bg-white'} p-6 text-left shadow-sm`}>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className={`text-left text-xl font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
