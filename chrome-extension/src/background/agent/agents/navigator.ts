@@ -318,10 +318,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             targetNode?.attributes?.role === 'textbox';
           const watch: GuideStepWatch =
             actionName === 'input_text' && typeof stepArgs.text === 'string'
-              ? { mode: 'value', expectedText: stepArgs.text }
+              ? { mode: 'value', expectedText: stepArgs.text, label: nextGoal }
               : actionName === 'click_element' && isTextField
-                ? { mode: 'input' }
-                : { mode: 'click' };
+                ? { mode: 'input', label: nextGoal }
+                : { mode: 'click', label: nextGoal };
 
           let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
 

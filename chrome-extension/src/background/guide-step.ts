@@ -55,6 +55,8 @@ export interface GuideStepWatch {
    */
   mode: 'click' | 'value' | 'input';
   expectedText?: string;
+  /** The step's instruction, shown in the Driver.js spotlight popover. */
+  label?: string;
 }
 
 /** Tell every injected page frame to watch for this step's marked target. */
@@ -71,7 +73,13 @@ export async function watchGuideStepTarget(
       try {
         await chrome.tabs.sendMessage(
           tabId,
-          { type: 'guide_watch_target', stepId, mode: watch.mode, expectedText: watch.expectedText },
+          {
+            type: 'guide_watch_target',
+            stepId,
+            mode: watch.mode,
+            expectedText: watch.expectedText,
+            label: watch.label,
+          },
           { frameId },
         );
       } catch {
