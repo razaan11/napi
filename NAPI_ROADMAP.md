@@ -87,8 +87,21 @@ block) telling it to describe ONLY the single upcoming action in `next_goal`, ne
 after it, and to use `input_text` directly rather than a separate click-to-focus step when replacing
 existing text. Auto mode's prompt is unchanged.
 
-**Not yet re-verified live** — three real bugs found and fixed from one test case; retest the same
-LinkedIn task once more to confirm all three hold together on a fresh run.
+**Fourth bug found + fixed live (Sep 12), same LinkedIn retest:** the first three fixes held — the
+Navigator correctly picked `click_element` (not `input_text`) for the empty post text box, since it had no
+real content to type on the user's behalf. But the guide loop only had two watch modes: `click` (a real
+click) and `value` (an EXACT expected string). A `click_element` step on a text field got watched in
+`click` mode — and since LinkedIn's composer auto-focuses that field, the user just typed directly with no
+extra click, so the click watcher never fired and the step timed out despite the user doing exactly the
+right thing. **Fixed**: added a third watch mode, `input` — advance the moment the field has ANY non-empty
+content, for free-form composing where the model has no expected text to give. `guide-step.ts` (`mode`
+type), `pages/content/src/index.ts` (the value listener now also satisfies on non-empty content), and
+`navigator.ts` (a `click_element` action targeting a text-input-like element — checked via
+`selectorMap`'s `tagName`/`contenteditable`/`role` — now watches in `input` mode instead of plain `click`;
+`waitForUserStep` and `verifyStep` both treat `input` the same as `value`).
+
+**Not yet re-verified live** — four real bugs found and fixed from one test case; retest the same
+LinkedIn task once more to confirm all four hold together on a fresh run.
 
 **Also observed (not yet acted on):** the same run wasted 3 steps on "Frame with ID 624 is showing error
 page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
