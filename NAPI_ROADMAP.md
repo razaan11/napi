@@ -452,6 +452,40 @@ Done + committed:
 before (the single most important text is now front-and-center, not the case that it never rendered at
 all) — not fully there without the "why" and real progress-count pieces above.
 
+**v1.1 (Sep 12), same day — four more explicit asks:**
+- **Yellow brand color** — mechanical `sky-*`/`blue-*` → `yellow-*` Tailwind class swap (plus the raw
+  `#0EA5E9` hex in `Options.tsx`) across every side-panel and options file. `CurrentStepCard`'s
+  green=verified/amber=retry kept distinct on purpose.
+- **napi logo** — `pages/side-panel/src/components/NapiLogo.tsx`, an inline SVG (lightbulb-in-a-circle,
+  yellow) replacing the `<img src="/icon-128.png">` header logo. No image-editing tools available in this
+  environment to recolor the existing PNG icon files — this only changes the in-app logo; the actual Chrome
+  toolbar/extensions-page icon still needs real new icon assets.
+- **Chatbot-style explain-then-guide** — a typed request now gets an explain-only answer first (no page
+  interaction), then a **"▶ Start guiding me through this"** button; only clicking it starts the real guide
+  loop. New `handleUserSubmit` wraps outgoing text with an explain-only instruction and remembers the
+  original ask (`pendingGuideTask`); the button resends it as a real follow-up. Mission runs bypass this
+  entirely (their own Start button + pre-written steps already exist).
+- **Hid Planner/Navigator "loop" noise** — no more "Showing progress..." bubbles for `STEP_START`, no more
+  per-action `ACT_START` intent narration. The Planner's actual plan and real errors (`ACT_FAIL`,
+  `TASK_FAIL`) still show; `STEP_FAIL`'s recovery text no longer duplicates into the chat now that
+  `CurrentStepCard` already shows it.
+- **Driver.js for the spotlight** — `pages/content/src/index.ts` now calls `driver().highlight({ element,
+  popover })` on the marked guide-target (dims the page, cuts a highlight, shows the step's instruction in
+  a popover) instead of relying only on `buildDomTree.js`'s plain colored box. `buildDomTree.js`'s own
+  highlighting (used for the model's understanding of the whole page) is untouched.
+  - **Build gotcha found + fixed**: a content script has no `<link>` tag to load CSS from, and
+    `content_scripts` in the manifest here only ever declared `js`, never `css` — Driver.js's stylesheet
+    would've been dead weight with zero visual effect (this was already true of the previous, unused
+    `_content.css` output too). Added `vite-plugin-css-injected-by-js` so content-script CSS inlines into
+    the JS bundle as a runtime `<style>` tag instead.
+  - **Known limitation**: Driver.js always appends its overlay to `document.body` (no container/root config
+    option exists in its API) — a native `<dialog>` shown via `showModal()` (LinkedIn's post composer, for
+    one) could hide it behind the browser's "top layer" the same way it hid `buildDomTree.js`'s highlight
+    before that fix. `buildDomTree.js`'s own highlight still works correctly there since it WAS fixed; only
+    Driver's new overlay has this gap. Not addressed — watch for it on dialog-heavy sites.
+  - **Not yet tested live** — retest on a real page to confirm the spotlight actually renders and stays
+    clickable.
+
 ---
 
 ## Stage 7 — polish + first users  **[in progress]**
