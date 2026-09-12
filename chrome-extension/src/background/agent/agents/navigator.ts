@@ -325,7 +325,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
 
           // pause and wait for the USER to perform the step
-          const userActed = await this.waitForUserStep(guideStepClick);
+          const userActed = await this.waitForUserStep(guideStepClick, watch.mode);
 
           // Stage 3 — verify the intended outcome actually happened.
           // Reading the full page state rebuilds the DOM tree, which is slow on
@@ -582,11 +582,26 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
    * Requires the side panel to stay open (keeps the service worker alive).
    */
   /**
-   * GUIDE MODE (napi): wait for either a URL change or a real click on the
-   * spotlighted element. Times out after 2 minutes.
+   * GUIDE MODE (napi): wait for the user to complete the spotlighted step.
+   * Times out after 2 minutes.
+   *
+   * The two watch modes need different success signals:
+   *  - 'click': either a real click on the target OR a URL change counts —
+   *    a click that navigates might be observed via either path first.
+   *  - 'value' (typing): ONLY a genuine value match counts. Racing this
+   *    against a URL-change poll (like the click path does) would let an
+   *    unrelated navigation — the user backing out, a page redirect, an SPA
+   *    route change — get misreported as "the user typed the expected
+   *    text", which the Checker then takes at face value (an input_text step
+   *    is trusted as verified once userActed is true — see checker.ts). This
+   *    is a real bug that showed up testing on linkedin.com: the compose
+   *    dialog's URL flipped back to /feed while waiting for typed content,
+   *    and the step was wrongly marked "typed text matches" even though no
+   *    text had actually been confirmed to match.
    */
   private async waitForUserStep(
-    guideStepClick?: ReturnType<typeof waitForGuideStepClick>,
+    guideStepMatch?: ReturnType<typeof waitForGuideStepClick>,
+    watchMode: GuideStepWatch['mode'] = 'click',
     timeoutMs = 120_000,
   ): Promise<boolean> {
     const page = await this.context.browserContext.getCurrentPage();
@@ -620,16 +635,31 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       return false;
     };
 
+    // A timeout for the 'value' path, which doesn't get one for free from
+    // waitForUrlChange() since that poller isn't part of its race.
+    const waitForTimeout = (): Promise<false> => new Promise(resolve => setTimeout(() => resolve(false), timeoutMs));
+
     try {
-      const userActed = guideStepClick
-        ? await Promise.race([
-            waitForUrlChange(),
-            guideStepClick.promise.then(() => {
-              logger.info('🧭 GUIDE MODE — user clicked the spotlighted element');
-              return true;
-            }),
-          ])
-        : await waitForUrlChange();
+      let userActed: boolean;
+      if (!guideStepMatch) {
+        userActed = await waitForUrlChange();
+      } else if (watchMode === 'value') {
+        userActed = await Promise.race([
+          guideStepMatch.promise.then(() => {
+            logger.info('🧭 GUIDE MODE — the spotlighted field matched the expected value');
+            return true;
+          }),
+          waitForTimeout(),
+        ]);
+      } else {
+        userActed = await Promise.race([
+          waitForUrlChange(),
+          guideStepMatch.promise.then(() => {
+            logger.info('🧭 GUIDE MODE — user clicked the spotlighted element');
+            return true;
+          }),
+        ]);
+      }
 
       if (!userActed) {
         logger.warning('🧭 GUIDE MODE — timed out waiting for the user');
@@ -638,7 +668,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       return userActed;
     } finally {
       stillWaiting = false;
-      guideStepClick?.cancel();
+      guideStepMatch?.cancel();
     }
   }
 
