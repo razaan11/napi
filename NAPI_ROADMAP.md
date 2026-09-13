@@ -483,8 +483,23 @@ all) — not fully there without the "why" and real progress-count pieces above.
     one) could hide it behind the browser's "top layer" the same way it hid `buildDomTree.js`'s highlight
     before that fix. `buildDomTree.js`'s own highlight still works correctly there since it WAS fixed; only
     Driver's new overlay has this gap. Not addressed — watch for it on dialog-heavy sites.
-  - **Not yet tested live** — retest on a real page to confirm the spotlight actually renders and stays
-    clickable.
+  - **✅ Verified live (Sep 13)** — the spotlight renders and stays clickable. Root cause of the first
+    "not working" report was a stale tab: content scripts only get re-injected when the PAGE reloads, not
+    when the extension does — reloading just the extension leaves an already-open tab on the old script.
+
+**v1.2 (Sep 13) — two more fixes from live testing:**
+- **Leftover blue colors** — the v1.1 color swap only matched Tailwind class names (`sky-400`, `blue-600`).
+  It missed raw hex colors in plain CSS and arbitrary-value classes like `bg-[#19C2FF]`, which don't contain
+  those literal substrings. Fixed for real this time: `SidePanel.css` (header icons, send button border,
+  code blocks, scrollbars — some comments had already been mislabeled "yellow" by the v1.1 sed while the
+  actual color stayed untouched), `Options.css` (dark-mode code block), `ChatInput.tsx` (the send button
+  itself — probably the most visible remaining blue element), `ModelSettings.tsx` (temperature/topP slider
+  gradients). **✅ Verified live.**
+- **"Thinking…" indicator** — re-enabled the progress-bubble mechanism for Planner and Navigator
+  `STEP_START` (fully disabled in the loop-noise cleanup), renamed from generic "Showing progress..." to
+  "🤔 Thinking…", so the panel doesn't go silent right after you send a message. Navigator's version needed
+  an explicit `clearThinkingBubble()` call on `STEP_OK`/`STEP_FAIL` since its real result updates the
+  `CurrentStepCard`, not the chat log, so nothing else would have cleared it. **✅ Verified live.**
 
 ---
 
