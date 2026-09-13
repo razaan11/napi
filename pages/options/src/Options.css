@@ -28,8 +28,8 @@ code {
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   code {
-    background: rgba(30, 58, 138, 0.4);
-    color: #7dd3fc;
+    background: rgba(113, 63, 18, 0.4); /* yellow-900 */
+    color: #fde047; /* yellow-300 */
   }
   
   .dark-mode-text {

@@ -1,22 +1,22 @@
 /* Add this at the top of the file */
 body {
-  border-color: rgb(159, 6, 11) !important; /* yellow-200 color */
+  border-color: rgb(254, 240, 138) !important; /* yellow-200 */
 }
 
 /* Remove unused classes: .App, .App-logo, .App-header */
 
 code {
-  background: rgba(186, 230, 253, 0.4);
+  background: rgba(254, 240, 138, 0.4); /* yellow-200 */
   border-radius: 0.25rem;
   padding: 0.2rem 0.5rem;
-  color: #0369a1;
+  color: #a16207; /* yellow-700 */
 }
 
 /* Dark mode support for code */
 @media (prefers-color-scheme: dark) {
   code {
-    background: rgba(30, 58, 138, 0.4);
-    color: #7dd3fc;
+    background: rgba(113, 63, 18, 0.4); /* yellow-900 */
+    color: #fde047; /* yellow-300 */
   }
 }
 
@@ -30,12 +30,12 @@ code {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #eab308;
+  background: #eab308; /* yellow-500 */
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #0284c7;
+  background: #ca8a04; /* yellow-600 */
 }
 
 /* Dark mode scrollbar */
@@ -43,13 +43,13 @@ code {
   ::-webkit-scrollbar-track {
     background: #1e293b;
   }
-  
+
   ::-webkit-scrollbar-thumb {
-    background: #eab308;
+    background: #eab308; /* yellow-500 */
   }
-  
+
   ::-webkit-scrollbar-thumb:hover {
-    background: #38bdf8;
+    background: #facc15; /* yellow-400 */
   }
 }
 
@@ -60,13 +60,13 @@ code {
   align-items: center;
   padding: 0.75rem;
   background-color: transparent;
-  border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.2); /* yellow-500 */
 }
 
 /* Dark mode header border */
 @media (prefers-color-scheme: dark) {
   .header {
-    border-bottom: 1px solid rgba(14, 165, 233, 0.3);
+    border-bottom: 1px solid rgba(234, 179, 8, 0.3); /* yellow-500 */
   }
 }
 
@@ -82,31 +82,31 @@ code {
 }
 
 .header-icon {
-  color: #19C2FF;
+  color: #ca8a04; /* yellow-600 */
   cursor: pointer;
   transition: color 0.2s ease;
   opacity: 0.8;
 }
 
 .header-icon:hover {
-  color: #0073DC;
+  color: #a16207; /* yellow-700 */
   opacity: 1;
 }
 
 .send-button {
-  color: #19C2FF;
+  color: #ca8a04; /* yellow-600 */
   cursor: pointer;
   transition: color 0.2s ease;
   opacity: 0.8;
 }
 
 .send-button:hover {
-  color: #0073DC;
+  color: #a16207; /* yellow-700 */
   opacity: 1;
 }
 
 .send-button:disabled {
-  color: #CBD5E1;
+  color: #cbd5e1;
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -122,30 +122,30 @@ code {
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-track {
-  background: #f1f5f9;  /* yellow-50 */
+  background: #f1f5f9;
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-thumb {
-  background: #7dd3fc;  /* yellow-300 - very light blue */
+  background: #fde047; /* yellow-300 */
   border-radius: 4px;
 }
 
 .scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
-  background: #38bdf8;  /* yellow-400 - slightly darker on hover */
+  background: #facc15; /* yellow-400 */
 }
 
 /* Dark mode scrollbar for scrollbar-gutter-stable */
 @media (prefers-color-scheme: dark) {
   .scrollbar-gutter-stable::-webkit-scrollbar-track {
-    background: #1e293b;  /* slate-800 */
+    background: #1e293b; /* slate-800 */
   }
-  
+
   .scrollbar-gutter-stable::-webkit-scrollbar-thumb {
-    background: #eab308;  /* yellow-500 */
+    background: #eab308; /* yellow-500 */
   }
-  
+
   .scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
-    background: #38bdf8;  /* yellow-400 */
+    background: #facc15; /* yellow-400 */
   }
 }
 
@@ -154,11 +154,11 @@ code {
   .dark-mode-text {
     color: #e2e8f0 !important; /* slate-200 */
   }
-  
+
   .dark-mode-bg {
     background-color: #1e293b !important; /* slate-800 */
   }
-  
+
   .dark-mode-border {
     border-color: #475569 !important; /* slate-600 */
   }

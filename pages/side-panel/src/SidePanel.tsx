@@ -41,7 +41,11 @@ declare global {
 }
 
 const SidePanel = () => {
-  const progressMessage = 'Showing progress...';
+  // napi UI — shown as a placeholder chat bubble whenever napi is working on
+  // something (thinking through a request, planning) with nothing more
+  // specific to show yet. Auto-replaced by the next real message (see
+  // appendMessage's filter below) — never stacks or lingers.
+  const progressMessage = '🤔 Thinking…';
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputEnabled, setInputEnabled] = useState(true);
   const [showStopButton, setShowStopButton] = useState(false);
@@ -194,6 +198,15 @@ const SidePanel = () => {
     }
   }, []);
 
+  // napi UI — remove a trailing "🤔 Thinking…" bubble that a normal
+  // appendMessage call won't naturally replace (Navigator STEP_OK/STEP_FAIL
+  // update the CurrentStepCard, not the chat log, so nothing else clears it).
+  const clearThinkingBubble = () => {
+    setMessages(prev =>
+      prev.length > 0 && prev[prev.length - 1].content === progressMessage ? prev.slice(0, -1) : prev,
+    );
+  };
+
   // napi Stage 6 — mission runner. These only ever touch refs, state
   // setters, and the already-stable appendMessage, so it's safe for
   // handleTaskState's memoized closure (fixed at first render) to call them
@@ -291,9 +304,12 @@ const SidePanel = () => {
         case Actors.PLANNER:
           switch (state) {
             case ExecutionState.STEP_START:
-              // napi: no "Planning..." progress bubble — the plan itself
-              // (STEP_OK below) is the useful part; the "running" indicator
-              // is exactly the loop noise the user asked to hide.
+              // A "🤔 Thinking…" bubble while the Planner call is in flight —
+              // otherwise the panel goes silent right after you send a
+              // message, with nothing indicating it's working. Auto-replaced
+              // by the plan itself (STEP_OK below) via appendMessage's own
+              // trailing-progress-message filter.
+              displayProgress = true;
               break;
             case ExecutionState.STEP_OK:
               // Keep visible: this IS "the steps" shown before guiding starts.
@@ -312,10 +328,15 @@ const SidePanel = () => {
         case Actors.NAVIGATOR:
           switch (state) {
             case ExecutionState.STEP_START:
-              // napi: no "Navigating..." progress bubble — same reasoning as
-              // the Planner above.
+              // Same "🤔 Thinking…" placeholder while the Navigator decides
+              // the next step — this one doesn't get cleared by a normal
+              // appendMessage call (Navigator STEP_OK never appends to the
+              // chat, it only updates the CurrentStepCard), so
+              // clearThinkingBubble() below handles removing it explicitly.
+              displayProgress = true;
               break;
             case ExecutionState.STEP_OK:
+              clearThinkingBubble();
               if (content?.startsWith('👉 Your step:')) {
                 setCurrentStep({ status: 'waiting', text: content.replace('👉 Your step:', '').trim() });
               } else if (content?.startsWith('✅ Done:')) {
@@ -326,6 +347,7 @@ const SidePanel = () => {
               // Not appended to the chat log (skip stays true) — the
               // CurrentStepCard already shows this clearly; a duplicate chat
               // bubble is exactly the "navigator loop" noise being hidden.
+              clearThinkingBubble();
               if (content?.startsWith('⚠️')) {
                 setCurrentStep({ status: 'retry', text: content.replace(/^⚠️\s*/, '').trim() });
               }
