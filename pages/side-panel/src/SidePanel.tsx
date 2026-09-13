@@ -789,9 +789,20 @@ const SidePanel = () => {
     }
 
     setPendingGuideTask(trimmed);
+    // napi: phrase this as a QUESTION, not a paused command. Earlier testing
+    // showed the difference matters a lot: asking "guide me to X, but don't
+    // act yet" gets treated as an action task that's merely paused — the
+    // Planner correctly refuses to click anything, but ALSO correctly
+    // refuses to mark it done ("nothing has been posted yet"), so the loop
+    // just issues `wait` forever with no way to finish. Asking "how would I
+    // do X" as a genuine question reliably gets the Planner's own "if this
+    // isn't a web task, just answer directly and mark done" path (its
+    // existing behavior — no prompt changes needed on the backend), so it
+    // answers once, completes, and the Start-guiding button can appear.
     await handleSendMessage(
-      `${trimmed}\n\n(First just explain the steps in plain language — don't click, type, or interact ` +
-        `with the page yet. I'll say when to start.)`,
+      `How would I do this? Explain the steps in plain, numbered language as your complete answer — do not ` +
+        `click, type, navigate, or interact with the page at all. This is just a question; treat it as fully ` +
+        `answered once you've listed the steps.\n\nTask: ${trimmed}`,
       displayText ?? trimmed,
     );
   };
