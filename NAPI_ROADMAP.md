@@ -129,6 +129,21 @@ as-is for now — revisit if this pattern recurs outside of testing.
 page" before self-correcting via `go_to_url` — likely just the active tab not being on a real page yet
 when the task started. Minor overhead, not chased further this session; revisit if it recurs.
 
+**Sixth + seventh bugs found + fixed live (Sep 14), testing "create/delete a repo" on github.com:**
+- `input_text` steps still required an EXACT text match (the `'value'` watch mode), even though the
+  model's supplied text is almost always just an example ("e.g. type 'my-first-repo'"), not something
+  the user is required to reproduce. A user who (correctly) typed their own repo name instead of the
+  model's suggestion never got detected and just timed out. Same root cause as the earlier LinkedIn
+  free-typing fix (item 4 further up) — that one only covered `click_element` on a text field;
+  `input_text` itself still defaulted to exact matching. **Fixed**: `input_text` now always uses the
+  free-form `'input'` mode too, in `navigator.ts`.
+- Sending a new message while a previous guided step was still actively waiting on the page caused two
+  executions to overlap and corrupted the UI state — the next answer came back with no "Start guiding"
+  button. Root cause: `ChatInput.tsx`'s submit handler never actually checked its own `disabled` prop
+  before calling `onSendMessage` — it relied entirely on the textarea's HTML `disabled` attribute, not a
+  hard guarantee against every UI timing gap. **Fixed**: added an explicit `if (disabled) return` at the
+  top of the submit handler as a backstop, regardless of what let the box become interactable.
+
 **Optional refinements (not blocking; do later if a real mission needs them):**
 - **Generic local DOM-change** detection for controls where a click alone isn't the completion signal
   (e.g. an expander whose `aria-expanded` flips on a different node). Add a `mode: 'dom'` with a
