@@ -116,6 +116,28 @@ way you'd say them out loud — plain language, no jargon you'd have to explain 
 > actual beginners — people who aren't me — to see where they personally get confused. That's the
 > planned next step.
 
+**Q: This feels slow — how are you going to speed it up?**
+> Some of that is already fixed, some is a real next step.
+>
+> Already done: a broken AI call used to hang for up to 12 minutes before giving up — now it fails in
+> seconds. I also cut the number of AI calls per step nearly in half by not re-asking the "planning"
+> AI to re-check its plan after every single step, only at the start and the end. And the "did it
+> work" check now skips re-scanning the whole page when a much quicker check already answers the
+> question.
+>
+> What's left, in order of impact:
+> 1. **The AI model you use is the single biggest factor.** Free models are the slow ones — a faster
+>    (usually paid) model would speed up most of what's left, since each step still needs at least one
+>    AI call and that call's speed is mostly out of my hands.
+> 2. **Send the AI less to think about.** Right now it reads a good chunk of the page's content every
+>    step. Trimming that down to just what's relevant means a faster reply and a cheaper one.
+> 3. **Use more pre-written Missions.** A Mission already has its steps written down, so it skips the
+>    "figure out the plan" AI call entirely — that's the fastest path there is. Right now there's only
+>    one example Mission; writing more removes a whole AI call for anything that has one.
+>
+> Worth being upfront about: some slowness will always exist as long as a real AI call has to happen
+> before every step — that's not something more code alone fixes, it's a trade-off of using AI at all.
+
 ---
 
 ## D. Skeptical / Challenge Questions
