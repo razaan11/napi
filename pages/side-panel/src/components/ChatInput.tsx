@@ -79,6 +79,14 @@ export default function ChatInput({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      // napi: never send while a task is running, even if some UI timing gap
+      // briefly left the textarea interactable — found on github.com,
+      // sending a new request while a guided step was still waiting on the
+      // page caused two executions to overlap and corrupted the UI state
+      // (the next answer came back with no "Start guiding" button). The
+      // `disabled` prop is the single source of truth for "is napi busy" —
+      // enforce it here too, not just via the textarea's own disabled attribute.
+      if (disabled) return;
       const trimmedText = text.trim();
 
       if (trimmedText || attachedFiles.length > 0) {
@@ -110,7 +118,7 @@ export default function ChatInput({
         setAttachedFiles([]);
       }
     },
-    [text, attachedFiles, onSendMessage],
+    [disabled, text, attachedFiles, onSendMessage],
   );
 
   const handleKeyDown = useCallback(

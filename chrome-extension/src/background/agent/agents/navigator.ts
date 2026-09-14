@@ -299,29 +299,35 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, `👉 Your step: ${nextGoal}`);
 
           // Pick how we'll know the user did this step:
-          //  - input_text with known text -> exact 'value' match (the model
-          //    knows what belongs here, e.g. filling in known form data).
-          //  - click_element targeting a text field -> 'input' — any
-          //    non-empty content counts. This covers free-form composing
-          //    (a LinkedIn post, an email body, ...) where the model has no
-          //    expected text to give. Without this, a click on an
-          //    already-focused field would never see a click event (the
-          //    user just types) and would time out despite the user doing
-          //    exactly the right thing — found testing on linkedin.com.
+          //  - input_text, or click_element on a text field -> 'input' — any
+          //    non-empty content counts. Covers free-form composing (a
+          //    LinkedIn post, a repo name, an email body, ...) where the
+          //    model's suggested text is just an example, not something the
+          //    user must reproduce exactly. Without this, a click on an
+          //    already-focused field would never see a click event either
+          //    (the user just types) — found testing on linkedin.com and
+          //    github.com.
           //  - everything else -> a real click.
-          const stepArgs = (step[actionName] ?? {}) as Record<string, unknown>;
           const targetNode = currentState?.selectorMap?.get(targetIndex);
           const isTextField =
             targetNode?.tagName === 'input' ||
             targetNode?.tagName === 'textarea' ||
             targetNode?.attributes?.contenteditable === 'true' ||
             targetNode?.attributes?.role === 'textbox';
+          // napi: `input_text`'s `text` argument is almost always just the
+          // model's OWN example/suggestion ("e.g. 'my-first-repo'"), not a
+          // value the user is required to reproduce exactly — the whole
+          // point of guide mode is the user does the real work, in their own
+          // words. Requiring an exact match meant a user who (correctly)
+          // typed their own repo name instead of the model's example never
+          // got detected and just timed out. Found on github.com, same root
+          // cause as the earlier LinkedIn free-typing fix — so input_text
+          // now uses the same free-form 'input' mode (any non-empty content)
+          // as a click_element on a text field, instead of an exact match.
           const watch: GuideStepWatch =
-            actionName === 'input_text' && typeof stepArgs.text === 'string'
-              ? { mode: 'value', expectedText: stepArgs.text, label: nextGoal }
-              : actionName === 'click_element' && isTextField
-                ? { mode: 'input', label: nextGoal }
-                : { mode: 'click', label: nextGoal };
+            actionName === 'input_text' || (actionName === 'click_element' && isTextField)
+              ? { mode: 'input', label: nextGoal }
+              : { mode: 'click', label: nextGoal };
 
           let guideStepClick: ReturnType<typeof waitForGuideStepClick> | undefined;
 
