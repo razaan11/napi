@@ -3,7 +3,7 @@
 **Purpose of this file:** a new AI session (or a new developer) has zero memory of the work that
 produced this repo's current state. This document is the fast on-ramp — read this first, then go
 deeper into `NAPI_DEV_NOTES.md` / `NAPI_ROADMAP.md` for anything you need more detail on. Everything
-here was true as of **2026-09-13**, branch `guide-mode`, latest commit `b41f9cb`.
+here was true as of **2026-09-14**, branch `guide-mode`, latest commit `f92218b`.
 
 ---
 
@@ -40,8 +40,9 @@ messages in this repo are written for that audience. Keep that tone.
 
 **The single most important validation this session:** free-text guide-mode requests (no
 pre-written mission) have been proven end-to-end on **LinkedIn** (posting), **Notion**, **GitHub**
-(creating a workflow), and simpler sites (Wikipedia, example.com, w3schools). This is the core
-product bet, and it holds up on real, hard, JS-heavy sites — not just toy pages.
+(creating a workflow, creating/deleting a repo), and simpler sites (Wikipedia, example.com,
+w3schools). This is the core product bet, and it holds up on real, hard, JS-heavy sites — not just
+toy pages.
 
 Full detail on every stage, file paths, and "still to do" lists: **`NAPI_ROADMAP.md`**.
 Full chronological build log with exact code changes: **`NAPI_DEV_NOTES.md`**.
@@ -152,6 +153,28 @@ they're the kind of thing that only shows up when a real user does a real task.
     start, this would have wiped the fallback-chain config on every run if not caught before shipping.
     Lesson: when adding a field to a store that already has narrow `set()` callbacks elsewhere, check
     ALL of them for this exact mistake, not just the one you're adding to.
+
+11. **`input_text` still required an exact text match — bug #4's fix didn't fully cover it.** Found
+    testing github.com's "create a repository" flow: the model supplies `text` for `input_text` as an
+    EXAMPLE ("e.g. type 'my-first-repo'"), not a value the user must reproduce. Bug #4 only switched
+    `click_element` on a text field to the free-form `'input'` mode; `input_text` itself still defaulted
+    to exact `'value'` matching, so a user who (correctly) typed their own repo name instead of the
+    model's example never got detected and just timed out. Fix: `input_text` now always uses `'input'`
+    mode too. (`navigator.ts`) Lesson: when a bug's root cause is "the model's example text isn't
+    something the user is required to match," check every action type that carries a `text` argument,
+    not just the one you saw fail first.
+
+12. **A UI `disabled` prop that isn't actually enforced isn't a guarantee.** Sending a new message
+    while a previous guided step was still actively waiting on the page caused two Executor runs to
+    overlap and corrupted UI state (the next answer came back with no "Start guiding" button — the
+    stale run's later `TASK_FAIL`/`TASK_CANCEL` event cleared state a newer request had just set).
+    Root cause: `ChatInput.tsx`'s submit handler never checked its own `disabled` prop before calling
+    `onSendMessage` — it relied entirely on the textarea's HTML `disabled` attribute, which isn't a hard
+    guarantee against every UI timing gap (e.g. a stale event transiently flipping `inputEnabled` back
+    to `true`). Fix: added an explicit `if (disabled) return` at the top of the submit handler as a
+    backstop. Lesson: a prop named `disabled` that only affects styling/HTML attributes, with no
+    corresponding runtime check in the handler it's meant to guard, is a latent bug — check the handler
+    itself, not just that the UI looks disabled.
 
 ---
 
